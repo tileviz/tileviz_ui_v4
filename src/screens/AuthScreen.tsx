@@ -1,0 +1,367 @@
+// ============================================================
+//  screens/AuthScreen.tsx
+//  Futuristic login form with animated background, glassmorphism
+//  card, TileViz logo, and matching intro-screen animations.
+// ============================================================
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, KeyboardAvoidingView,
+  Platform, TextInput, Pressable, ActivityIndicator,
+  Animated, Easing, useWindowDimensions,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Colors } from '../config/theme';
+import { TileVizLogo } from '../components/TileVizLogo';
+import { FuturisticBackground } from '../components/FuturisticBackground';
+import { useAuthStore } from '../store/auth.store';
+import { apiLogin, toAppUser } from '../auth/auth.api';
+
+// ── Futuristic text input ─────────────────────────────────────
+function GlassInput({
+  label, value, onChangeText, placeholder, secureTextEntry, keyboardType, autoCapitalize,
+}: {
+  label: string; value: string; onChangeText: (t: string) => void;
+  placeholder?: string; secureTextEntry?: boolean;
+  keyboardType?: any; autoCapitalize?: any;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={gi.container}>
+      <Text style={gi.label}>{label}</Text>
+      <View style={[gi.inputWrap, focused && gi.inputWrapFocused]}>
+        <TextInput
+          style={gi.input}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="rgba(232,234,244,0.3)"
+          secureTextEntry={secureTextEntry}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+      </View>
+    </View>
+  );
+}
+
+const gi = StyleSheet.create({
+  container: { marginBottom: 16, width: '100%' },
+  label: {
+    fontSize: 11, fontWeight: '600', color: 'rgba(232,234,244,0.6)',
+    letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6,
+  },
+  inputWrap: {
+    borderWidth: 1,
+    borderColor: 'rgba(124,111,247,0.2)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(10,18,30,0.6)',
+    ...(Platform.OS === 'web' ? {
+      backdropFilter: 'blur(8px)',
+      WebkitBackdropFilter: 'blur(8px)',
+    } as any : {}),
+  },
+  inputWrapFocused: {
+    borderColor: 'rgba(124,111,247,0.5)',
+    shadowColor: Colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  input: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 14,
+    color: '#E8EAF4',
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}),
+  },
+});
+
+// ── Main AuthScreen ───────────────────────────────────────────
+interface Props { onAuthenticated: () => void; }
+
+export function AuthScreen({ onAuthenticated }: Props) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isSmall = width < 600;
+  const setUser = useAuthStore(s => s.setUser);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  // Card entrance animation
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const cardTranslateY = useRef(new Animated.Value(30)).current;
+
+  // Logo glow pulse
+  const logoGlow = useRef(new Animated.Value(0.5)).current;
+
+  // Button animation
+  const btnScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    // Card entrance
+    Animated.parallel([
+      Animated.timing(cardOpacity, {
+        toValue: 1, duration: 1000, delay: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      Animated.timing(cardTranslateY, {
+        toValue: 0, duration: 1000, delay: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start();
+
+    // Logo glow pulse
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(logoGlow, { toValue: 1, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(logoGlow, { toValue: 0.5, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
+      ])
+    ).start();
+  }, []);
+
+  async function handleLogin() {
+    if (!email || !password) { setError('Please enter email and password'); return; }
+    setLoading(true); setError('');
+    try {
+      const res = await apiLogin({ email, password });
+      setUser(toAppUser(res.user));
+      onAuthenticated();
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.message ?? 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handlePressIn = () => {
+    Animated.spring(btnScale, { toValue: 0.96, useNativeDriver: Platform.OS !== 'web' }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(btnScale, { toValue: 1, useNativeDriver: Platform.OS !== 'web' }).start();
+  };
+
+  const logoGlowOpacity = logoGlow.interpolate({
+    inputRange: [0.5, 1], outputRange: [0, 0.3],
+  });
+
+  return (
+    <View style={styles.container}>
+      <FuturisticBackground />
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View style={[
+            styles.glassCard,
+            {
+              opacity: cardOpacity,
+              transform: [{ translateY: cardTranslateY }],
+              maxWidth: isSmall ? '94%' as any : 440,
+              paddingHorizontal: isSmall ? 24 : 40,
+              paddingVertical: isSmall ? 32 : 44,
+            },
+          ]}>
+            {/* Logo */}
+            <View style={styles.logoSection}>
+              <TileVizLogo size="lg" variant="light" />
+            </View>
+
+            <Text style={styles.tagline}>Visualize. Design. Transform.</Text>
+
+            {/* Divider */}
+            <View style={styles.divider} />
+
+            {/* Sign In title */}
+            <Text style={styles.formTitle}>Sign In</Text>
+
+            {/* Form fields */}
+            <GlassInput
+              label="Email"
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={email}
+              onChangeText={setEmail}
+            />
+            <GlassInput
+              label="Password"
+              placeholder="••••••••"
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+            />
+
+            {/* Error message */}
+            {error ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>⚠ {error}</Text>
+              </View>
+            ) : null}
+
+            {/* Sign In button */}
+            <Pressable
+              onPress={handleLogin}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              disabled={loading}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              <Animated.View style={[
+                styles.signInBtn,
+                { transform: [{ scale: btnScale }] },
+                loading && { opacity: 0.7 },
+              ]}>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.signInBtnText}>Sign In</Text>
+                )}
+              </Animated.View>
+            </Pressable>
+
+            {/* Demo credentials */}
+            <View style={styles.demoBox}>
+              <Text style={styles.demoTitle}>Demo Credentials</Text>
+              <Text style={styles.demoText}>admin@tileviz.com · admin password</Text>
+              <Text style={styles.demoText}>owner@shop.com · shop owner</Text>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  glassCard: {
+    width: '100%',
+    borderRadius: 24,
+    backgroundColor: 'rgba(12, 25, 40, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(124, 111, 247, 0.18)',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' ? {
+      backdropFilter: 'blur(24px)',
+      WebkitBackdropFilter: 'blur(24px)',
+    } as any : {}),
+    shadowColor: 'rgba(124, 111, 247, 0.3)',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 40,
+    elevation: 20,
+  },
+  logoSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    position: 'relative',
+  },
+  logoGlow: {
+    position: 'absolute',
+    width: 120, height: 120,
+    borderRadius: 60,
+    backgroundColor: Colors.accent,
+  },
+  tagline: {
+    fontSize: 12,
+    color: 'rgba(200,169,110,0.8)',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginBottom: 20,
+  },
+  divider: {
+    width: '80%',
+    height: 1,
+    backgroundColor: 'rgba(124, 111, 247, 0.15)',
+    marginBottom: 24,
+  },
+  formTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#E8EAF4',
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  errorBox: {
+    width: '100%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(224, 82, 82, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(224, 82, 82, 0.25)',
+    marginBottom: 12,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#F87171',
+  },
+  signInBtn: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: Colors.accent,
+    shadowColor: Colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  signInBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  demoBox: {
+    marginTop: 20,
+    width: '100%',
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(124, 111, 247, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(124, 111, 247, 0.12)',
+  },
+  demoTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(232,234,244,0.5)',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  demoText: {
+    fontSize: 12,
+    color: 'rgba(232,234,244,0.45)',
+    lineHeight: 20,
+  },
+});

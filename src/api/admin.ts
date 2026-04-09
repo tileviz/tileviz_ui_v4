@@ -22,6 +22,7 @@ export const createAdminUser = async (p: { name: string; role: 'shop_owner' | 's
 };
 export const patchAdminUser      = async (id: string, u: any) => { const { data } = await client.patch(`/api/admin/users/${id}`, u); return data.user; };
 export const deactivateUser      = async (id: string) => { const { data } = await client.delete(`/api/admin/users/${id}`); return data; };
+export const deleteUserPermanent = async (id: string) => { const { data } = await client.delete(`/api/admin/users/${id}/permanent`); return data; };
 export const resetUserPassword   = async (id: string, password?: string) => { const { data } = await client.put(`/api/admin/users/${id}/reset-password`, { password }); return data; };
 
 // ── Shops ────────────────────────────────────────────────────

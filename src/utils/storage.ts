@@ -1,53 +1,46 @@
 // ============================================================
-//  utils/storage.ts
-//  Platform-safe key-value storage.
-//
-//  ROOT CAUSE OF BLANK SCREEN FIX:
-//  expo-secure-store uses a static top-level import which
-//  throws on web because native modules aren't available.
-//  Solution: dynamic require() inside each function, wrapped
-//  in try/catch, with in-memory fallback for web/web-errors.
+//  utils/storage.ts — Cross-platform storage helpers
+//  Uses localStorage on web, AsyncStorage on native
 // ============================================================
 
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// In-memory fallback (web + any SecureStore failure)
-const mem: Record<string, string> = {};
-
-function getSecureStore(): any | null {
-  if (Platform.OS === 'web') return null;
+// ── Helper functions for token storage (used by client.ts) ──
+export async function storeSafe(key: string, value: string): Promise<void> {
   try {
-    // Dynamic require avoids static import crash on web
-    return require('expo-secure-store');
-  } catch {
+    if (Platform.OS === 'web') {
+      localStorage.setItem(key, value);
+    } else {
+      await AsyncStorage.setItem(key, value);
+    }
+  } catch (e) {
+    console.error(`storeSafe error for key ${key}:`, e);
+  }
+}
+
+export async function getSafe(key: string): Promise<string | null> {
+  try {
+    if (Platform.OS === 'web') {
+      return localStorage.getItem(key);
+    } else {
+      return await AsyncStorage.getItem(key);
+    }
+  } catch (e) {
+    console.error(`getSafe error for key ${key}:`, e);
     return null;
   }
 }
 
-export async function storeSafe(key: string, value: string): Promise<void> {
-  const SS = getSecureStore();
-  if (!SS) {
-    if (Platform.OS === 'web') { try { localStorage.setItem(key, value); } catch { mem[key] = value; } return; }
-    mem[key] = value; return;
-  }
-  try { await SS.setItemAsync(key, value); } catch { mem[key] = value; }
-}
-
-export async function getSafe(key: string): Promise<string | null> {
-  const SS = getSecureStore();
-  if (!SS) {
-    if (Platform.OS === 'web') { try { return localStorage.getItem(key); } catch {} }
-    return mem[key] ?? null;
-  }
-  try { return await SS.getItemAsync(key); } catch { return mem[key] ?? null; }
-}
-
 export async function deleteSafe(key: string): Promise<void> {
-  const SS = getSecureStore();
-  delete mem[key];
-  if (!SS) {
-    if (Platform.OS === 'web') { try { localStorage.removeItem(key); } catch {} }
-    return;
+  try {
+    if (Platform.OS === 'web') {
+      localStorage.removeItem(key);
+    } else {
+      await AsyncStorage.removeItem(key);
+    }
+  } catch (e) {
+    console.error(`deleteSafe error for key ${key}:`, e);
   }
-  try { await SS.deleteItemAsync(key); } catch {}
 }
+

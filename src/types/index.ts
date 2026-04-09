@@ -96,13 +96,25 @@ export interface InventoryItem {
   tileSize:     string;        // e.g. "12x12" or "custom"
   tileName?:    string;        // primary tile name
   tileColor?:   string;        // primary tile color for thumbnail
+  tileImageUri?: string;       // primary tile image URI
   zoneRows:     ZoneRow[];     // full zone assignments
   shopId?:      string;
   shopName?:    string;
   createdBy?:   string;        // user name
   createdByRole?: UserRole;
   createdAt:    string;
+  updatedAt?:   string;        // last update timestamp
   status:       'draft' | 'active' | 'archived';
+  // Full design restoration fields
+  wallColor?:            string;
+  selectedTileId?:       string;
+  selectedTileName?:     string;
+  selectedTileColor?:    string;
+  selectedTileImageUri?: string;
+  // Admin screen fields
+  quantity?:      number;
+  price?:         number;
+  availability?:  'in-stock' | 'out-of-stock' | 'low-stock';
 }
 
 // ── Misc ──────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "tileviz_ui_v2",
-    "slug": "tileviz_ui_v2",
+    "name": "TileViz",
+    "slug": "tileviz",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -26,6 +26,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": []
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ]
   }
 }

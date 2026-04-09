@@ -35,6 +35,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, EBSta
 }
 
 export default function App() {
+  console.log('[TileViz] App.tsx rendering');
   // GestureHandlerRootView needs flex:1 on all platforms
   return (
     <ErrorBoundary>

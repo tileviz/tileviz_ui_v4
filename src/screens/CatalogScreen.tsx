@@ -3,7 +3,7 @@
 import React, { useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, Alert, RefreshControl, ScrollView, Image,
+  StyleSheet, RefreshControl, ScrollView, Image,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
@@ -17,6 +17,7 @@ import { useAppStore } from '../store/app.store';
 import { getTiles, deleteTile } from '../api/tiles';
 import { CAT_TABS, ROOM_SIZE_FILTERS } from '../config';
 import { Tile } from '../types';
+import { showConfirm, showAlert } from '../utils/alert';
 
 const H_PAD = 12;
 
@@ -62,9 +63,16 @@ export function CatalogScreen() {
   const sizeFilters = activeTab !== 'all' ? ROOM_SIZE_FILTERS[activeTab] ?? [] : [];
 
   const canUpload = user?.role === 'admin' || user?.role === 'shop_owner' || user?.role === 'sales_person';
+  const canDelete = user?.role === 'admin' || user?.role === 'shop_owner';
 
   // ── Tile click: assign to focused zone row OR just select ──
   function handleTilePress(tile: Tile) {
+    // Only allow tile selection if sidebar (Zone Arena) is open
+    if (!sidebarOpen) {
+      showAlert('Zone Arena Required', 'Please open Zone Arena first to configure your room and assign tiles.');
+      return;
+    }
+
     if (assigningKey) {
       // Assign tile to the focused zone row
       const [wallKey, ri] = assigningKey.split(':');
@@ -87,18 +95,25 @@ export function CatalogScreen() {
   }
 
   async function handleDelete(tile: Tile) {
-    Alert.alert('Delete Tile', `Delete "${tile.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          try {
-            await deleteTile(tile.id);
-            setTiles(tiles.filter(t => t.id !== tile.id));
-          }
-          catch (e: any) { Alert.alert('Error', e?.response?.data?.message ?? 'Delete failed'); }
+    console.log('Delete tile clicked:', tile.name, tile.id);
+    showConfirm(
+      'Delete Tile',
+      `Are you sure you want to delete "${tile.name}"?\n\nThis will remove it from the catalog and cannot be undone.`,
+      async () => {
+        try {
+          console.log('Deleting tile:', tile.id);
+          await deleteTile(tile.id);
+          setTiles(tiles.filter(t => t.id !== tile.id));
+          showAlert('Deleted', `"${tile.name}" has been removed from the catalog.`);
+        } catch (e: any) {
+          console.error('Delete tile error:', e);
+          showAlert('Error', e?.response?.data?.message ?? 'Failed to delete tile');
         }
       },
-    ]);
+      () => {
+        console.log('Delete cancelled');
+      }
+    );
   }
 
   // Derive assigning label for the banner
@@ -246,6 +261,8 @@ export function CatalogScreen() {
                       tile={item}
                       selected={selectedTile?.id === item.id}
                       onPress={handleTilePress}
+                      onDelete={canDelete ? handleDelete : undefined}
+                      canDelete={canDelete}
                     />
                   ))}
                 </View>

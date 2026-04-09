@@ -6,7 +6,7 @@ import {Colors,Radii,Shadows} from '../config/theme';
 import {RoleBadge} from '../components/RoleBadge';
 import {Button} from '../components/Button';
 import {useAuthStore} from '../store/auth.store';
-import {getAdminStats,getAdminShops,getAdminUsers,patchAdminUser,getMyShop,getMyShopSalesPersons} from '../api/admin';
+import {getAdminStats,getAdminShops,getAdminUsers,patchAdminUser,getMyShop,getMyShopSalesPersons,getCatalogRequests,reviewCatalogRequest} from '../api/admin';
 import {UserRole} from '../types';
 
 const PLAN_STYLE:Record<string,{bg:string;text:string;border:string}>={
@@ -28,6 +28,7 @@ export function DashboardScreen(){
   const [users,setUsers]=useState<any[]>([]);
   const [myShop,setMyShop]=useState<any>(null);
   const [sps,setSps]=useState<any[]>([]);
+  const [requests,setRequests]=useState<any[]>([]);
   const [loading,setLoading]=useState(true);
   const [refreshing,setRefreshing]=useState(false);
 
@@ -37,14 +38,14 @@ export function DashboardScreen(){
         const [st,sh,us]=await Promise.all([getAdminStats(),getAdminShops(),getAdminUsers()]);
         setStats(st);setShops(sh);setUsers(us);
       } else {
-        const [shopData,spData]=await Promise.all([getMyShop(),getMyShopSalesPersons()]);
-        setMyShop(shopData);setSps(spData);
+        const [shopData,spData,reqData]=await Promise.all([getMyShop(),getMyShopSalesPersons(),getCatalogRequests('pending')]);
+        setMyShop(shopData);setSps(spData);setRequests(reqData);
         // Build simple stats for shop owner
         setStats({
           tiles:{total:shopData?.stats?.totalTiles??0},
           users:{total:spData?.length??0,active:spData?.filter((s:any)=>s.isActive).length??0},
           shops:{total:1,active:1},
-          pendingCatalogRequests:shopData?.stats?.pendingRequests??0,
+          pendingCatalogRequests:reqData?.length??0,
         });
       }
     }catch(e:any){console.error('dashboard:',e?.message);}
@@ -55,6 +56,17 @@ export function DashboardScreen(){
   async function handleToggleUser(id:string,isActive:boolean){
     try{await patchAdminUser(id,{isActive:!isActive});setUsers(prev=>prev.map(u=>u._id===id?{...u,isActive:!isActive}:u));}
     catch(e:any){Alert.alert('Error',e?.response?.data?.message??'Failed');}
+  }
+
+  async function handleReviewRequest(id:string,status:'approved'|'rejected'){
+    try{
+      await reviewCatalogRequest(id,status);
+      setRequests(prev=>prev.filter(r=>r._id!==id));
+      setStats((prev:any)=>({...prev,pendingCatalogRequests:(prev?.pendingCatalogRequests??1)-1}));
+      Alert.alert('Done',`Request ${status}.`);
+    }catch(e:any){
+      Alert.alert('Error',e?.response?.data?.message??'Failed');
+    }
   }
 
   if(loading)return(<View style={{flex:1,alignItems:'center',justifyContent:'center',gap:12}}><ActivityIndicator size="large" color={Colors.accent}/><Text style={{fontSize:13,color:Colors.text3}}>Loading dashboard…</Text></View>);
@@ -84,6 +96,26 @@ export function DashboardScreen(){
           </View>
         ))}
       </View>
+
+      {/* Shop Owner: Pending Catalog Requests */}
+      {!isAdmin&&requests.length>0&&(
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>Pending Tile Requests</Text>
+          {requests.map((req:any)=>(
+            <View key={req._id} style={[s.rowCard,{flexDirection:'column',gap:10}]}>
+              <View style={{flex:1,width:'100%'}}>
+                <Text style={s.rowName}>{req.tile?.name??'Unknown Tile'}</Text>
+                <Text style={s.rowSub}>Requested by: {req.requestedBy?.name??'—'}</Text>
+                <Text style={s.rowSub}>Category: {req.tile?.category??'—'}</Text>
+              </View>
+              <View style={{flexDirection:'row',gap:8,width:'100%'}}>
+                <Button label="✓ Approve" onPress={()=>handleReviewRequest(req._id,'approved')} variant="accent" size="sm" style={{flex:1}}/>
+                <Button label="✕ Reject"  onPress={()=>handleReviewRequest(req._id,'rejected')} variant="danger"  size="sm" style={{flex:1}}/>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Admin: Registered Shops */}
       {isAdmin&&(

@@ -9,6 +9,10 @@ export interface RoomBuildConfig {
   tileWidthIn:number;tileHeightIn:number;selectedTile:Tile|null;zoneRows:ZoneRow[];
   wallColor?:string;
 }
+
+// Export alias for backwards compatibility
+export type RoomConfig = RoomBuildConfig;
+
 const FT=THREE_FT_SCALE;
 
 function std(col:number,rough=0.7,metal=0){return new THREE.MeshStandardMaterial({color:col,roughness:rough,metalness:metal});}

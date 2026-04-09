@@ -2,7 +2,7 @@
 import React, { useCallback, useRef } from 'react';
 import {
   View, Text, Image,
-  StyleSheet, Pressable, Animated,
+  StyleSheet, Pressable, Animated, TouchableOpacity,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Tile } from '../types';
@@ -13,9 +13,11 @@ interface Props {
   tile: Tile;
   selected?: boolean;
   onPress: (t: Tile) => void;
+  onDelete?: (t: Tile) => void;
+  canDelete?: boolean;
 }
 
-function TileCardInner({ tile, selected, onPress }: Props) {
+function TileCardInner({ tile, selected, onPress, onDelete, canDelete }: Props) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = useCallback(() => {
@@ -58,6 +60,21 @@ function TileCardInner({ tile, selected, onPress }: Props) {
               <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>✓</Text>
             </View>
           )}
+
+          {/* Delete button - only show if canDelete is true */}
+          {canDelete && onDelete && (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                onDelete(tile);
+              }}
+              style={s.deleteBtn}
+              activeOpacity={0.8}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={s.deleteBtnText}>🗑</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Name label */}
@@ -96,6 +113,7 @@ const s = StyleSheet.create({
     width: CARD_SIZE - 2,
     height: CARD_SIZE - 2,
     backgroundColor: Colors.surface2,
+    position: 'relative',
   },
   img: { width: '100%', height: '100%', resizeMode: 'cover' },
   swatch: { width: '100%', height: '100%' },
@@ -109,7 +127,34 @@ const s = StyleSheet.create({
     backgroundColor: Colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
   },
-  meta: { paddingHorizontal: 4, paddingVertical: 2 },
-  name: { fontSize: 9, fontWeight: '600', color: Colors.text1 },
+  deleteBtn: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(224, 82, 82, 0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    ...Shadows.card,
+  },
+  deleteBtnText: {
+    fontSize: 12,
+  },
+  meta: {
+    padding: 4,
+    alignItems: 'center',
+  },
+  name: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: Colors.text1,
+    textAlign: 'center',
+  },
 });

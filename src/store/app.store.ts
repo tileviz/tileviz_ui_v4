@@ -3,7 +3,7 @@
 // ============================================================
 
 import { create } from 'zustand';
-import { RoomType, RoomDimensions, ZoneRow, SavedDesign } from '../types';
+import { RoomType, RoomDimensions, ZoneRow, SavedDesign, Tile } from '../types';
 import { ROOM_DEFAULTS } from '../config';
 
 interface AppState {
@@ -30,6 +30,12 @@ interface AppState {
   // Active nav page
   activePage:       string;
   setActivePage:    (p: string) => void;
+
+  // Load complete design (unified method)
+  loadDesign:       (design: SavedDesign, setSelectedTile?: (tile: Tile | null) => void, availableTiles?: Tile[]) => void;
+
+  // Clear design state (for starting fresh)
+  clearDesign:      () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -52,4 +58,56 @@ export const useAppStore = create<AppState>((set) => ({
 
   activePage:       'visualizer',
   setActivePage:    (activePage)       => set({ activePage }),
+
+  // Load a complete design with all features
+  loadDesign: (design, setSelectedTile, availableTiles = []) => {
+    // Set room configuration
+    set({
+      roomType: design.roomType,
+      dimensions: design.dimensions,
+      selectedTileSize: design.selectedTileSize || '12x12',
+      wallColor: design.wallColor || '#f0ebe4',
+      zoneRows: design.zoneRows || [],
+      activePage: 'visualizer', // Navigate to visualizer
+    });
+
+    // Set selected tile if callback provided
+    if (setSelectedTile) {
+      if (design.selectedTileId) {
+        // Try to find the tile in available tiles
+        const tile = availableTiles.find(t => t.id === design.selectedTileId);
+        if (tile) {
+          setSelectedTile(tile);
+        } else if (design.selectedTileName) {
+          // Create a temporary tile object from saved data
+          const [widthStr, heightStr] = (design.selectedTileSize || '12x12').split('x');
+          setSelectedTile({
+            id: design.selectedTileId,
+            name: design.selectedTileName,
+            category: 'marble',
+            widthIn: parseInt(widthStr) || 12,
+            heightIn: parseInt(heightStr) || 12,
+            color: design.selectedTileColor || '#cccccc',
+            pattern: 'solid',
+            pricePerSqFt: 0,
+            imageUri: design.tileImageUri,
+          });
+        } else {
+          setSelectedTile(null);
+        }
+      } else {
+        setSelectedTile(null);
+      }
+    }
+  },
+
+  // Clear all design state
+  clearDesign: () => set({
+    roomType: 'bathroom',
+    dimensions: ROOM_DEFAULTS['bathroom'],
+    selectedTileSize: '12x12',
+    wallColor: '#f0ebe4',
+    zoneRows: [],
+    focusedZoneKey: null,
+  }),
 }));

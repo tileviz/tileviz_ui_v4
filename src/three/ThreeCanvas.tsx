@@ -2,7 +2,7 @@
 //  three/ThreeCanvas.tsx
 //  Web: full Three.js 3D via WebGLRenderer
 //  Native (iOS/Android): full Three.js 3D via expo-gl + expo-three
-//  Features: dark-themed controls, hover tooltips, object toggle
+//  Features: dark-themed controls, hover tooltips, object toggle, 360° panorama
 // ============================================================
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import {
@@ -10,9 +10,9 @@ import {
   ActivityIndicator, Platform, Animated,
 } from 'react-native';
 import * as THREE from 'three';
-import { Colors, Radii, Shadows } from '../config/theme';
-import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScene } from './scene';
-import { buildRoom, RoomBuildResult } from './room-builder';
+import { Colors, Radii } from '../config/theme';
+import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScene, setupInteriorCamera, setInteriorLighting, setExteriorLighting } from './scene';
+import { buildRoom } from './room-builder';
 import { RoomType, Tile, ZoneRow } from '../types';
 
 export interface RoomBuildConfig {
@@ -80,11 +80,20 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
     lightOn: boolean;
     objectsOn: boolean;
     animId: number;
+    // Interior view state
+    interiorMode: boolean;
+    yaw: number;
+    pitch: number;
+    isDragging: boolean;
+    lastMouseX: number;
+    lastMouseY: number;
   } | null>(null);
   const [ready,      setReady]      = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
   const [lightOn,    setLightOnUI]  = useState(true);
   const [objectsOn,  setObjectsOn]  = useState(true);
+  const [interiorMode, setInteriorMode] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   // mount once — create renderer + loop
   useEffect(() => {
@@ -107,13 +116,18 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
     const { roomGroup, fixturesGroup } = buildRoom(bundle.scene, cfg, bundle.pointLight);
     frameCameraToRoom(bundle.camera, cfg.widthFt, cfg.lengthFt, cfg.heightFt);
 
-    const state = { bundle, roomGroup, fixturesGroup, autoRotate: true, lightOn: true, objectsOn: true, animId: 0 };
+    const state = {
+      bundle, roomGroup, fixturesGroup,
+      autoRotate: true, lightOn: true, objectsOn: true, animId: 0,
+      interiorMode: false, yaw: 0, pitch: 0,
+      isDragging: false, lastMouseX: 0, lastMouseY: 0
+    };
     stateRef.current = state;
     setReady(true);
 
     const loop = () => {
       state.animId = requestAnimationFrame(loop);
-      if (state.roomGroup && state.autoRotate) state.roomGroup.rotation.y += 0.003;
+      if (state.roomGroup && state.autoRotate && !state.interiorMode) state.roomGroup.rotation.y += 0.003;
       bundle.renderer.render(bundle.scene, bundle.camera);
     };
     loop();
@@ -129,9 +143,79 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
     });
     ro.observe(container);
 
+    // ── Mouse/Touch event listeners for interior view (web only) ──
+    const handleMouseDown = (e: MouseEvent | TouchEvent) => {
+      const s = stateRef.current;
+      if (!s || !s.interiorMode) return;
+      s.isDragging = true;
+      s.lastMouseX = (e as MouseEvent).clientX || (e as TouchEvent).touches?.[0]?.clientX || 0;
+      s.lastMouseY = (e as MouseEvent).clientY || (e as TouchEvent).touches?.[0]?.clientY || 0;
+      canvas.style.cursor = 'grabbing';
+    };
+
+    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
+      const s = stateRef.current;
+      if (!s || !s.isDragging || !s.interiorMode) return;
+
+      const clientX = (e as MouseEvent).clientX || (e as TouchEvent).touches?.[0]?.clientX || 0;
+      const clientY = (e as MouseEvent).clientY || (e as TouchEvent).touches?.[0]?.clientY || 0;
+
+      const deltaX = clientX - s.lastMouseX;
+      const deltaY = clientY - s.lastMouseY;
+
+      // Update yaw/pitch
+      const sensitivity = 0.003;
+      s.yaw -= deltaX * sensitivity;
+      s.pitch -= deltaY * sensitivity;
+
+      // Clamp pitch (±72°)
+      const maxPitch = (72 * Math.PI) / 180;
+      s.pitch = Math.max(-maxPitch, Math.min(maxPitch, s.pitch));
+
+      // Update camera
+      updateInteriorCamera(s, cfg);
+
+      s.lastMouseX = clientX;
+      s.lastMouseY = clientY;
+    };
+
+    const handleMouseUp = () => {
+      const s = stateRef.current;
+      if (!s) return;
+      s.isDragging = false;
+      canvas.style.cursor = s.interiorMode ? 'grab' : 'default';
+    };
+
+    const handleWheel = (e: WheelEvent) => {
+      const s = stateRef.current;
+      if (!s || !s.interiorMode) return;
+      e.preventDefault();
+
+      const delta = e.deltaY > 0 ? 5 : -5;
+      s.bundle.camera.fov = Math.max(35, Math.min(100, s.bundle.camera.fov + delta));
+      s.bundle.camera.updateProjectionMatrix();
+    };
+
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseleave', handleMouseUp);
+    canvas.addEventListener('touchstart', handleMouseDown);
+    canvas.addEventListener('touchmove', handleMouseMove);
+    canvas.addEventListener('touchend', handleMouseUp);
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+
     return () => {
       cancelAnimationFrame(state.animId);
       ro.disconnect();
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseleave', handleMouseUp);
+      canvas.removeEventListener('touchstart', handleMouseDown);
+      canvas.removeEventListener('touchmove', handleMouseMove);
+      canvas.removeEventListener('touchend', handleMouseUp);
+      canvas.removeEventListener('wheel', handleWheel);
       bundle.renderer.dispose();
       if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
       stateRef.current = null;
@@ -140,14 +224,70 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
+  const updateInteriorCamera = (s: any, cfg: any) => {
+    // Calculate look direction from yaw and pitch
+    const lookDir = new THREE.Vector3(
+      Math.sin(s.yaw) * Math.cos(s.pitch),
+      Math.sin(s.pitch),
+      -Math.cos(s.yaw) * Math.cos(s.pitch)
+    );
+
+    // Update camera look-at
+    const lookTarget = new THREE.Vector3(
+      s.bundle.camera.position.x + lookDir.x,
+      s.bundle.camera.position.y + lookDir.y,
+      s.bundle.camera.position.z + lookDir.z
+    );
+
+    s.bundle.camera.lookAt(lookTarget);
+  };
+
+  const toggleInterior = () => {
+    const s = stateRef.current;
+    if (!s || !config) return;
+
+    s.interiorMode = !s.interiorMode;
+    setInteriorMode(s.interiorMode);
+
+    if (s.interiorMode) {
+      // Enter interior mode
+      s.autoRotate = false;
+      setAutoRotate(false);
+      s.yaw = 0;
+      s.pitch = 0;
+
+      setupInteriorCamera(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+      setInteriorLighting(s.bundle);
+
+      // Show hint for 3 seconds
+      setShowHint(true);
+      setTimeout(() => setShowHint(false), 3000);
+
+      // Set cursor
+      const canvas = containerRef.current?.querySelector('canvas');
+      if (canvas) canvas.style.cursor = 'grab';
+    } else {
+      // Exit to exterior mode
+      frameCameraToRoom(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+      setExteriorLighting(s.bundle, s.lightOn);
+      s.autoRotate = true;
+      setAutoRotate(true);
+
+      // Reset cursor
+      const canvas = containerRef.current?.querySelector('canvas');
+      if (canvas) canvas.style.cursor = 'default';
+    }
+  };
+
   const BTNS = [
-    { icon: '◁', label: 'Rotate Left',   fn: () => { const s=stateRef.current; if(s?.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y-=0.28;setAutoRotate(false);} } },
-    { icon: '▷', label: 'Rotate Right',  fn: () => { const s=stateRef.current; if(s?.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y+=0.28;setAutoRotate(false);} } },
-    { icon: '+', label: 'Zoom In',       fn: () => { const s=stateRef.current; if(s){s.bundle.camera.position.multiplyScalar(0.88);s.bundle.camera.position.clampLength(1.5,30);} } },
-    { icon: '−', label: 'Zoom Out',      fn: () => { const s=stateRef.current; if(s){s.bundle.camera.position.multiplyScalar(1.12);s.bundle.camera.position.clampLength(1.5,30);} } },
-    { icon: '⊙', label: 'Reset View',    fn: () => { const s=stateRef.current; if(s&&config){frameCameraToRoom(s.bundle.camera,config.widthFt,config.lengthFt,config.heightFt);if(s.roomGroup)s.roomGroup.rotation.y=0;s.autoRotate=true;setAutoRotate(true);} } },
-    { icon: autoRotate?'⏸':'▶', label: autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
-    { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;setLighting(s.bundle,s.lightOn);setLightOnUI(s.lightOn);} } },
+    { icon: '👁', label: 'Interior View', fn: toggleInterior, active: interiorMode },
+    { icon: '◁', label: 'Rotate Left',   fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw-=0.28;updateInteriorCamera(s,config);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y-=0.28;setAutoRotate(false);} } } },
+    { icon: '▷', label: 'Rotate Right',  fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw+=0.28;updateInteriorCamera(s,config);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y+=0.28;setAutoRotate(false);} } } },
+    { icon: '+', label: 'Zoom In',       fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.max(35,s.bundle.camera.fov-5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(0.88);s.bundle.camera.position.clampLength(1.5,30);} } } },
+    { icon: '−', label: 'Zoom Out',      fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.min(100,s.bundle.camera.fov+5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(1.12);s.bundle.camera.position.clampLength(1.5,30);} } } },
+    { icon: '⊙', label: 'Reset View',    fn: () => { const s=stateRef.current; if(s&&config){if(s.interiorMode){s.yaw=0;s.pitch=0;s.bundle.camera.fov=75;updateInteriorCamera(s,config);}else{frameCameraToRoom(s.bundle.camera,config.widthFt,config.lengthFt,config.heightFt);if(s.roomGroup)s.roomGroup.rotation.y=0;s.autoRotate=true;setAutoRotate(true);} } } },
+    { icon: autoRotate?'⏸':'▶', label: autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s&&!s.interiorMode){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
+    { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){setInteriorLighting(s.bundle);}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} } },
     { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} } },
   ];
 
@@ -161,9 +301,21 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
         </View>
       )}
       {ready && (
-        <View style={styles.controls}>
-          {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} />)}
-        </View>
+        <>
+          <View style={styles.controls}>
+            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} />)}
+          </View>
+          {interiorMode && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>👁 360° Interior View</Text>
+            </View>
+          )}
+          {showHint && (
+            <Animated.View style={styles.hint}>
+              <Text style={styles.hintText}>🔄 Drag to look around 360°</Text>
+            </Animated.View>
+          )}
+        </>
       )}
     </View>
   );
@@ -272,4 +424,8 @@ const styles = StyleSheet.create({
   ctrlBtnTextActive:{ color: Colors.primary },
   tooltip:    { position:'absolute', right:46, top:8, backgroundColor:'rgba(26,26,46,0.92)', paddingHorizontal:10, paddingVertical:5, borderRadius:6, minWidth:90 },
   tooltipText:{ fontSize:11, color:'#fff', fontWeight:'500', textAlign:'center' },
+  badge:      { position:'absolute', left:12, top:12, backgroundColor:'rgba(0,0,0,0.7)', paddingHorizontal:10, paddingVertical:6, borderRadius:12, flexDirection:'row', alignItems:'center', gap:8 },
+  badgeText:  { color:Colors.gold, fontWeight:'500', fontSize:12 },
+  hint:       { position:'absolute', bottom:80, left:'50%', marginLeft:-75, backgroundColor:'rgba(0,0,0,0.8)', paddingHorizontal:12, paddingVertical:8, borderRadius:8, flexDirection:'row', alignItems:'center', gap:8 },
+  hintText:   { color:'#fff', fontWeight:'400', fontSize:14, textAlign:'center' },
 });

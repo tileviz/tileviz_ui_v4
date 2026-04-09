@@ -2,14 +2,16 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Alert, Animated, Image,
+  StyleSheet, Alert, Image,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { ROOM_TYPES, ROOM_DEFAULTS, TILE_SIZES } from '../config';
 import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
 import { useAuthStore } from '../store/auth.store';
-import { RoomType, ZoneRow } from '../types';
+import { RoomType } from '../types';
+import { SaveInventoryModal } from './SaveInventoryModal';
+import { CreateInventoryPayload } from '../api';
 
 // Which surfaces get zones per room type
 const SURFACE_RULES: Record<RoomType, { walls: boolean; floor: boolean; wallCount: number }> = {
@@ -28,13 +30,14 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
   const { user } = useAuthStore();
   const {
     roomType, setRoomType, dimensions, setDimensions,
-    selectedTileSize, setTileSize, zoneRows, setZoneRows,
+    selectedTileSize, setTileSize, zoneRows, setZoneRows, wallColor, setActivePage,
   } = useAppStore();
   const { assigningKey, setAssigningKey, setSidebarOpen } = useCatalogStore();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   const isCustom = selectedTileSize === 'custom';
   const [tw, th] = isCustom
@@ -77,12 +80,35 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
   }
 
   function handleSaveInventory() {
-    const { setActivePage } = useAppStore.getState();
-    Alert.alert('Saved!', 'Design saved as inventory.', [
-      { text: 'View Inventory', onPress: () => { setSidebarOpen(false); setActivePage('inventory'); } },
-      { text: 'OK', style: 'cancel' },
-    ]);
+    setShowSaveModal(true);
   }
+
+  function handleInventorySaved() {
+    // Navigate to inventory screen
+    setSidebarOpen(false);
+    setActivePage('inventory');
+  }
+
+  // Prepare design data for modal
+  const getDesignData = (): Omit<CreateInventoryPayload, 'name'> => {
+    const firstTile = zoneRows.find(r => r.tileId || r.tileName);
+
+    return {
+      roomType,
+      dimensions,
+      tileSize: selectedTileSize,
+      tileName: firstTile?.tileName,
+      tileColor: firstTile?.color,
+      tileImageUri: firstTile?.tileImageUri,
+      zoneRows,
+      wallColor,
+      selectedTileId: firstTile?.tileId,
+      selectedTileName: firstTile?.tileName,
+      selectedTileColor: firstTile?.color,
+      selectedTileImageUri: firstTile?.tileImageUri,
+      status: 'active',
+    };
+  };
 
   // Build surfaces
   const surfaces: { key: string; label: string; rows: number }[] = [];
@@ -266,13 +292,25 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
               <Text style={st.generateTx}>🎬 Generate 3D Preview</Text>
             </TouchableOpacity>
             {canSave && (
-              <TouchableOpacity style={st.saveBtn} onPress={handleSaveInventory} activeOpacity={0.7}>
+              <TouchableOpacity
+                style={st.saveBtn}
+                onPress={handleSaveInventory}
+                activeOpacity={0.7}
+              >
                 <Text style={st.saveTx}>💾 Save as Inventory</Text>
               </TouchableOpacity>
             )}
           </View>
         </>
       )}
+
+      {/* Save Inventory Modal */}
+      <SaveInventoryModal
+        visible={showSaveModal}
+        onClose={() => setShowSaveModal(false)}
+        onSuccess={handleInventorySaved}
+        designData={getDesignData()}
+      />
     </View>
   );
 }

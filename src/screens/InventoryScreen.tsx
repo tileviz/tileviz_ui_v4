@@ -3,62 +3,21 @@
 //  Inventory Library — browse, search, and manage saved
 //  design inventories. Accessible to Admin, Shop Owner, Sales.
 // ============================================================
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, Alert, useWindowDimensions,
+  View, Text, FlatList, TouchableOpacity,
+  StyleSheet, useWindowDimensions, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { useAppStore } from '../store/app.store';
 import { useAuthStore } from '../store/auth.store';
-import { InventoryItem, RoomType } from '../types';
+import { useCatalogStore } from '../store/catalog.store';
+import { InventoryItem, SavedDesign } from '../types';
 import { ROOM_EMOJIS, ROOM_BG, formatDate } from '../utils/format';
-
-// ── Demo inventory data (in production, fetched from API) ─────
-const DEMO_INVENTORY: InventoryItem[] = [
-  {
-    id: 'INV-001', name: 'Modern Bathroom Suite', roomType: 'bathroom',
-    dimensions: { width: 8, length: 10, height: 10 }, tileSize: '12x12',
-    tileName: 'Ocean Mosaic', tileColor: '#5ba3c7',
-    zoneRows: [], shopName: 'TileWorld Mumbai', createdBy: 'Rajesh Kumar',
-    createdByRole: 'shop_owner', createdAt: '2026-03-28', status: 'active',
-  },
-  {
-    id: 'INV-002', name: 'Classic Kitchen Design', roomType: 'kitchen',
-    dimensions: { width: 10, length: 12, height: 10 }, tileSize: '18x18',
-    tileName: 'Midnight Navy', tileColor: '#1a2a5e',
-    zoneRows: [], shopName: 'TileWorld Mumbai', createdBy: 'Rajesh Kumar',
-    createdByRole: 'shop_owner', createdAt: '2026-03-27', status: 'active',
-  },
-  {
-    id: 'INV-003', name: 'Master Bedroom Floor', roomType: 'bedroom',
-    dimensions: { width: 14, length: 16, height: 10 }, tileSize: '24x24',
-    tileName: 'Rose Quartz', tileColor: '#e8a4b0',
-    zoneRows: [], shopName: 'Premium Tiles Pune', createdBy: 'Suresh Patel',
-    createdByRole: 'shop_owner', createdAt: '2026-03-25', status: 'active',
-  },
-  {
-    id: 'INV-004', name: 'Balcony Terracotta', roomType: 'balcony',
-    dimensions: { width: 6, length: 10, height: 8 }, tileSize: '12x12',
-    tileName: 'Terracotta Warm', tileColor: '#c87a4a',
-    zoneRows: [], shopName: 'TileWorld Mumbai', createdBy: 'Rajesh Kumar',
-    createdByRole: 'shop_owner', createdAt: '2026-03-22', status: 'draft',
-  },
-  {
-    id: 'INV-005', name: 'Parking Interlocking', roomType: 'parking',
-    dimensions: { width: 16, length: 20, height: 8 }, tileSize: '12x12',
-    tileName: 'Cobalt Blue', tileColor: '#2a4a8a',
-    zoneRows: [], shopName: 'Premium Tiles Pune', createdBy: 'Suresh Patel',
-    createdByRole: 'shop_owner', createdAt: '2026-03-20', status: 'active',
-  },
-  {
-    id: 'INV-006', name: 'Guest Bathroom', roomType: 'bathroom',
-    dimensions: { width: 6, length: 8, height: 9 }, tileSize: '6x6',
-    tileName: 'Pearl White', tileColor: '#f0ece4',
-    zoneRows: [], shopName: 'TileWorld Mumbai', createdBy: 'Anita Sharma',
-    createdByRole: 'sales_person', createdAt: '2026-03-18', status: 'archived',
-  },
-];
+import { getInventory, deleteInventory } from '../api';
+import { showConfirm, showAlert, showAlertWithButtons } from '../utils/alert';
+import { Trie } from '../utils/trie';
+import { SearchBar } from '../components/SearchBar';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   active:   { bg: 'rgba(76,175,80,0.12)', text: '#2e7d4f', label: 'Active' },
@@ -77,19 +36,53 @@ const ROOM_FILTERS: { key: string; label: string }[] = [
 
 export function InventoryScreen() {
   const { width } = useWindowDimensions();
-  const { setActivePage, setRoomType, setDimensions } = useAppStore();
+  const { loadDesign } = useAppStore();
+  const { setSelectedTile, tiles } = useCatalogStore();
   const { user } = useAuthStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roomFilter, setRoomFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [inventoryItems] = useState<InventoryItem[]>(DEMO_INVENTORY);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchTrie] = useState(() => new Trie());
 
   const numCols = width > 1200 ? 4 : width > 800 ? 3 : width > 500 ? 2 : 1;
 
-  // Filtered and searched inventory
+  // Build search index whenever inventory items change
+  useEffect(() => {
+    if (inventoryItems.length > 0) {
+      searchTrie.buildIndex(inventoryItems, ['name', 'id', 'tileName', 'shopName', 'createdBy', 'roomType']);
+    }
+  }, [inventoryItems, searchTrie]);
+
+  // Load inventory from backend
+  const loadInventory = useCallback(async () => {
+    try {
+      const items = await getInventory();
+      setInventoryItems(items);
+    } catch (error: any) {
+      console.error('Failed to load inventory:', error);
+      showAlert('Error', 'Failed to load inventory items. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadInventory();
+  }, [loadInventory]);
+
+  // Optimized filtering with Trie search
   const filteredItems = useMemo(() => {
     let items = inventoryItems;
+
+    // Apply search using Trie for O(m) complexity where m is query length
+    if (searchQuery.trim()) {
+      items = searchTrie.search(searchQuery);
+    }
 
     // Room type filter
     if (roomFilter !== 'all') {
@@ -101,32 +94,40 @@ export function InventoryScreen() {
       items = items.filter(i => i.status === statusFilter);
     }
 
-    // Search by name or ID
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      items = items.filter(i =>
-        i.name.toLowerCase().includes(q) ||
-        i.id.toLowerCase().includes(q) ||
-        i.tileName?.toLowerCase().includes(q) ||
-        i.shopName?.toLowerCase().includes(q) ||
-        i.createdBy?.toLowerCase().includes(q)
-      );
-    }
-
     return items;
-  }, [inventoryItems, roomFilter, statusFilter, searchQuery]);
+  }, [inventoryItems, roomFilter, statusFilter, searchQuery, searchTrie]);
 
   function handleLoadDesign(item: InventoryItem) {
-    setRoomType(item.roomType);
-    setDimensions(item.dimensions);
-    setActivePage('visualizer');
-    Alert.alert('Design Loaded', `"${item.name}" loaded into Visualizer.`);
+    // Convert InventoryItem to SavedDesign format
+    const design: SavedDesign = {
+      id: item.id,
+      name: item.name,
+      roomType: item.roomType,
+      dimensions: item.dimensions,
+      emoji: ROOM_EMOJIS[item.roomType] ?? '🏠',
+      createdAt: item.createdAt,
+      tileName: item.tileName,
+      tileImageUri: item.tileImageUri,
+      tileColor: item.tileColor,
+      zoneRows: item.zoneRows,
+      wallColor: item.wallColor,
+      selectedTileSize: item.tileSize,
+      selectedTileId: item.selectedTileId,
+      selectedTileName: item.selectedTileName || item.tileName,
+      selectedTileColor: item.selectedTileColor || item.tileColor,
+    };
+
+    // Use unified load design method
+    loadDesign(design, setSelectedTile, tiles);
+    showAlert('Design Loaded', `"${item.name}" loaded into Visualizer with all saved features.`);
   }
 
   function handleViewDetails(item: InventoryItem) {
-    Alert.alert(
+    const details = `ID: ${item.id}\nRoom: ${item.roomType}\nDimensions: ${item.dimensions.width}×${item.dimensions.length}×${item.dimensions.height} ft\nTile: ${item.tileName || 'N/A'}\nTile Size: ${item.tileSize}\nShop: ${item.shopName || 'N/A'}\nCreated by: ${item.createdBy || 'Unknown'}\nDate: ${formatDate(item.createdAt)}\nStatus: ${item.status}`;
+
+    showAlertWithButtons(
       item.name,
-      `ID: ${item.id}\nRoom: ${item.roomType}\nDimensions: ${item.dimensions.width}×${item.dimensions.length}×${item.dimensions.height} ft\nTile: ${item.tileName}\nTile Size: ${item.tileSize}\nShop: ${item.shopName}\nCreated by: ${item.createdBy}\nDate: ${formatDate(item.createdAt)}\nStatus: ${item.status}`,
+      details,
       [
         { text: 'Load Design', onPress: () => handleLoadDesign(item) },
         { text: 'Close', style: 'cancel' },
@@ -134,14 +135,36 @@ export function InventoryScreen() {
     );
   }
 
-  function handleDelete(item: InventoryItem) {
-    Alert.alert('Delete Inventory', `Delete "${item.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-        // In production: call API to delete
-        Alert.alert('Deleted', `"${item.name}" removed.`);
-      }},
-    ]);
+  async function handleDelete(item: InventoryItem) {
+    console.log('handleDelete called with item:', item.name, item.id);
+
+    // Only admin and shop_owner can delete
+    if (user?.role === 'sales_person') {
+      console.log('Permission denied for sales person');
+      showAlert('Permission Denied', 'Sales persons cannot delete inventory items.');
+      return;
+    }
+
+    console.log('Showing delete confirmation');
+    showConfirm(
+      'Delete Inventory',
+      `Delete "${item.name}"?\n\nThis action cannot be undone.`,
+      async () => {
+        console.log('Delete confirmed, calling API for ID:', item.id);
+        try {
+          await deleteInventory(item.id);
+          console.log('Delete API succeeded');
+          setInventoryItems(prev => prev.filter(i => i.id !== item.id));
+          showAlert('Deleted', `"${item.name}" has been removed from inventory.`);
+        } catch (error: any) {
+          console.error('Delete error:', error);
+          showAlert('Error', error.message || 'Failed to delete inventory item.');
+        }
+      },
+      () => {
+        console.log('Delete cancelled');
+      }
+    );
   }
 
   const roleLabel = (role?: string) => {
@@ -150,6 +173,16 @@ export function InventoryScreen() {
     if (role === 'sales_person') return '💼 Sales';
     return role || '';
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <ActivityIndicator size="large" color={Colors.accent} />
+        <Text style={{ fontSize: 13, color: Colors.text3 }}>Loading inventory…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={s.container}>
@@ -167,23 +200,11 @@ export function InventoryScreen() {
       </View>
 
       {/* Search bar */}
-      <View style={s.searchSection}>
-        <View style={s.searchBar}>
-          <Text style={s.searchIcon}>🔍</Text>
-          <TextInput
-            style={s.searchInput}
-            placeholder="Search by ID, name, tile, shop, or creator..."
-            placeholderTextColor={Colors.text3}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={s.clearSearch}>
-              <Text style={{ fontSize: 12, color: Colors.text3 }}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+      <SearchBar
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholder="Search by ID, name, tile, shop, or creator..."
+      />
 
       {/* Filter chips */}
       <View style={s.filterSection}>
@@ -240,7 +261,7 @@ export function InventoryScreen() {
           <Text style={{ fontSize: 56, marginBottom: 16 }}>📭</Text>
           <Text style={s.emptyTitle}>No inventories found</Text>
           <Text style={s.emptyDesc}>
-            {searchQuery ? `No results for "${searchQuery}"` : 'Create a design in Visualizer and save it as inventory.'}
+            {searchQuery ? `No results for "${searchQuery}"` : 'Create a design in Catalog and save it as inventory.'}
           </Text>
         </View>
       ) : (
@@ -251,76 +272,84 @@ export function InventoryScreen() {
           key={`cols-${numCols}`}
           contentContainerStyle={{ padding: 14, gap: 12, paddingBottom: 40 }}
           columnWrapperStyle={numCols > 1 ? { gap: 12 } : undefined}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadInventory();
+              }}
+              tintColor={Colors.accent}
+            />
+          }
           renderItem={({ item }) => (
-            <TouchableOpacity
-              onPress={() => handleViewDetails(item)}
-              activeOpacity={0.85}
-              style={[s.card, { flex: 1, maxWidth: numCols > 1 ? `${100 / numCols}%` as any : '100%' }]}
-            >
-              {/* Thumbnail */}
-              <View style={[s.cardThumb, { backgroundColor: ROOM_BG[item.roomType] ?? '#f8f6f2' }]}>
-                <Text style={{ fontSize: 36 }}>{ROOM_EMOJIS[item.roomType] ?? '🏠'}</Text>
-                {/* Tile color swatch */}
-                {item.tileColor && (
-                  <View style={[s.tileSwatch, { backgroundColor: item.tileColor }]} />
-                )}
-                {/* Status badge */}
-                <View style={[s.statusBadge, { backgroundColor: STATUS_COLORS[item.status]?.bg }]}>
-                  <Text style={[s.statusBadgeText, { color: STATUS_COLORS[item.status]?.text }]}>
-                    {STATUS_COLORS[item.status]?.label}
-                  </Text>
-                </View>
-              </View>
-              {/* Card body */}
-              <View style={s.cardBody}>
-                {/* ID badge */}
-                <View style={s.idBadge}>
-                  <Text style={s.idText}>{item.id}</Text>
-                </View>
-                <Text style={s.cardTitle} numberOfLines={1}>{item.name}</Text>
-                <Text style={s.cardDims}>
-                  {item.dimensions.width}×{item.dimensions.length}×{item.dimensions.height} ft • {item.tileSize}
-                </Text>
-                {item.tileName && (
-                  <Text style={s.cardTile} numberOfLines={1}>🪨 {item.tileName}</Text>
-                )}
-                {/* Shop + creator */}
-                <View style={s.cardMeta}>
-                  {item.shopName && (
-                    <Text style={s.metaText} numberOfLines={1}>🏪 {item.shopName}</Text>
+            <View style={[s.card, { flex: 1, maxWidth: numCols > 1 ? `${100 / numCols}%` as any : '100%' }]}>
+              <TouchableOpacity
+                onPress={() => handleViewDetails(item)}
+                activeOpacity={0.85}
+              >
+                {/* Thumbnail */}
+                <View style={[s.cardThumb, { backgroundColor: ROOM_BG[item.roomType] ?? '#f8f6f2' }]}>
+                  <Text style={{ fontSize: 36 }}>{ROOM_EMOJIS[item.roomType] ?? '🏠'}</Text>
+                  {/* Tile color swatch */}
+                  {item.tileColor && (
+                    <View style={[s.tileSwatch, { backgroundColor: item.tileColor }]} />
                   )}
-                  {item.createdBy && (
-                    <Text style={s.metaText} numberOfLines={1}>
-                      👤 {item.createdBy}
+                  {/* Status badge */}
+                  <View style={[s.statusBadge, { backgroundColor: STATUS_COLORS[item.status]?.bg }]}>
+                    <Text style={[s.statusBadgeText, { color: STATUS_COLORS[item.status]?.text }]}>
+                      {STATUS_COLORS[item.status]?.label}
                     </Text>
-                  )}
+                  </View>
                 </View>
-                <Text style={s.cardDate}>{formatDate(item.createdAt)}</Text>
-              </View>
-              {/* Card actions */}
-              <View style={s.cardActions}>
+                {/* Card body */}
+                <View style={s.cardBody}>
+                  <Text style={s.cardTitle} numberOfLines={1}>{item.name}</Text>
+                  <Text style={s.cardDims}>
+                    {item.dimensions.width}×{item.dimensions.length}×{item.dimensions.height} ft
+                  </Text>
+                  {item.tileName && (
+                    <Text style={s.cardTile} numberOfLines={1}>🪨 {item.tileName}</Text>
+                  )}
+                  <Text style={s.cardMeta}>
+                    {item.tileSize} • {roleLabel(item.createdByRole)}
+                  </Text>
+                  {item.shopName && (
+                    <Text style={s.cardShop} numberOfLines={1}>🏪 {item.shopName}</Text>
+                  )}
+                  <Text style={s.cardDate}>{formatDate(item.createdAt)}</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Action buttons - Outside the card TouchableOpacity */}
+              <View style={s.cardFooter} pointerEvents="box-none">
                 <TouchableOpacity
-                  style={s.loadBtn}
-                  onPress={() => handleLoadDesign(item)}
+                  onPress={() => {
+                    console.log('Load button clicked for:', item.name);
+                    handleLoadDesign(item);
+                  }}
+                  style={[s.actionBtn, s.loadBtn]}
+                  activeOpacity={0.7}
                 >
-                  <Text style={s.loadBtnText}>▣ Load</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={s.detailBtn}
-                  onPress={() => handleViewDetails(item)}
-                >
-                  <Text style={s.detailBtnText}>Details</Text>
+                  <Text style={s.loadBtnText}>Load</Text>
                 </TouchableOpacity>
                 {(user?.role === 'admin' || user?.role === 'shop_owner') && (
                   <TouchableOpacity
-                    style={s.deleteBtn}
-                    onPress={() => handleDelete(item)}
+                    onPress={() => {
+                      console.log('Delete button clicked for:', item.name);
+                      console.log('Item ID:', item.id);
+                      console.log('User role:', user?.role);
+                      handleDelete(item);
+                    }}
+                    style={[s.actionBtn, s.deleteBtn]}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={{ fontSize: 12 }}>🗑</Text>
+                    <Text style={s.deleteBtnText}>🗑</Text>
                   </TouchableOpacity>
                 )}
               </View>
-            </TouchableOpacity>
+            </View>
           )}
         />
       )}
@@ -553,6 +582,16 @@ const s = StyleSheet.create({
   },
 
   // Actions
+  cardFooter: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  actionBtn: {
+    paddingVertical: 7,
+    borderRadius: Radii.sm,
+  },
   cardActions: {
     flexDirection: 'row',
     gap: 4,
@@ -594,5 +633,13 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.surface,
+  },
+  deleteBtnText: {
+    fontSize: 14,
+  },
+  cardShop: {
+    fontSize: 10,
+    color: Colors.text3,
+    marginTop: 2,
   },
 });

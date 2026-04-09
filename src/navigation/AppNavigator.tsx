@@ -23,6 +23,7 @@ import { InventoryScreen }    from '../screens/InventoryScreen';
 import { AppHeader }          from '../components/AppHeader';
 
 export function AppNavigator() {
+  console.log('[TileViz] AppNavigator rendering');
   const insets = useSafeAreaInsets();
   const { user, setUser, isReady, setReady } = useAuthStore();
   const { activePage, setActivePage } = useAppStore();
@@ -33,6 +34,7 @@ export function AppNavigator() {
 
   // ── Session restore on boot ─────────────────────────────────
   useEffect(() => {
+    console.log('[TileViz] Boot useEffect starting');
     let cancelled = false;
 
     // Safety timeout: if boot takes >3s, show auth screen anyway
@@ -45,21 +47,27 @@ export function AppNavigator() {
 
     (async () => {
       try {
+        console.log('[TileViz] Checking for existing token...');
         const token = await getAccessToken();
+        console.log('[TileViz] Token check result:', token ? 'found' : 'not found');
         if (token && !cancelled) {
           try {
+            console.log('[TileViz] Fetching user data...');
             const u = await apiGetMe();
+            console.log('[TileViz] User data received:', u?.email);
             if (!cancelled) {
               setUser(toAppUser(u));
               setShowIntro(false); // skip intro if already logged in
             }
-          } catch {
+          } catch (err) {
+            console.warn('[TileViz] Token invalid:', err);
             // Token invalid — just go to auth
           }
         }
       } catch (e) {
         console.warn('[TileViz] Boot error:', e);
       } finally {
+        console.log('[TileViz] Boot complete, setting ready');
         bootDone.current = true;
         clearTimeout(timeout);
         if (!cancelled) setReady(true);
@@ -85,6 +93,7 @@ export function AppNavigator() {
 
   // ── Loading splash ───────────────────────────────────────────
   if (!isReady) {
+    console.log('[TileViz] Showing loading splash');
     return (
       <View style={{ flex: 1, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
         {/* Tile grid logo placeholder */}
@@ -99,15 +108,18 @@ export function AppNavigator() {
 
   // ── Intro screen (shown first) ─────────────────────────────
   if (!user && showIntro) {
+    console.log('[TileViz] Showing intro screen');
     return <IntroScreen onContinue={() => setShowIntro(false)} />;
   }
 
   // ── Auth screen ─────────────────────────────────────────────
   if (!user) {
+    console.log('[TileViz] Showing auth screen');
     return <AuthScreen onAuthenticated={() => setActivePage('visualizer')} />;
   }
 
   // ── Main app ────────────────────────────────────────────────
+  console.log('[TileViz] Showing main app, page:', activePage);
   const renderPage = () => {
     switch (activePage) {
       case 'catalog':   return <CatalogScreen />;

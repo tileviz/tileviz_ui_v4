@@ -109,3 +109,36 @@ export function frameCameraToRoom(cam:THREE.PerspectiveCamera, wFt:number, lFt:n
 export function setLighting(b:SceneBundle, on:boolean) {
   b.sun.intensity=on?1.4:0; b.pointLight.intensity=on?1.0:0;
 }
+
+// ── Interior Camera Setup (360° Panorama) ──
+export function setupInteriorCamera(cam: THREE.PerspectiveCamera, wFt: number, lFt: number, hFt: number) {
+  // Position camera at room center at eye height (~5.5ft standing level)
+  const eyeHeight = 5.5 * THREE_FT_SCALE;
+  cam.position.set(0, eyeHeight - (hFt * THREE_FT_SCALE) / 2, 0);
+  cam.lookAt(0, eyeHeight - (hFt * THREE_FT_SCALE) / 2, -1); // Look forward (north)
+
+  // Widen FOV for panoramic feel
+  cam.fov = 75;
+
+  // Adjust near/far clip planes for close-up wall viewing
+  cam.near = 0.01;
+  cam.far = Math.max(wFt, lFt) * THREE_FT_SCALE * 2;
+
+  cam.updateProjectionMatrix();
+}
+
+// ── Interior Lighting (softer ambient) ──
+export function setInteriorLighting(b: SceneBundle) {
+  // Softer, more ambient lighting for interior view
+  b.hemi.intensity = 1.2;
+  b.sun.intensity = 0.6;
+  b.pointLight.intensity = 1.5;
+}
+
+// ── Restore Exterior Lighting ──
+export function setExteriorLighting(b: SceneBundle, lightOn: boolean) {
+  // Restore original exterior lighting
+  b.hemi.intensity = 0.9;
+  b.sun.intensity = lightOn ? 1.4 : 0;
+  b.pointLight.intensity = lightOn ? 1.0 : 0;
+}

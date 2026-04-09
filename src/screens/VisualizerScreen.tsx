@@ -1,15 +1,16 @@
 // VisualizerScreen — full 3D visualizer with auto-preview & live updates
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Alert, Image, Animated } from 'react-native';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, Animated } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
 import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
 import { RoomType } from '../types';
-import { saveRoom } from '../api/rooms';
 import { ThreeCanvas, RoomBuildConfig } from '../three/ThreeCanvas';
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES } from '../config';
+import { SaveDesignModal } from '../components/SaveDesignModal';
+import { Alert } from '../utils/alert';
 
 // 35 curated wall colors — common Indian home paint palette
 const WALL_COLORS: Array<{ name: string; hex: string }> = [
@@ -51,10 +52,9 @@ function SaveToast({ status, onHide }: { status: 'success' | 'error' | null; onH
 }
 
 export function VisualizerScreen() {
-  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor } = useAppStore();
+  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage } = useAppStore();
   const { selectedTile } = useCatalogStore();
-  const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
+  const [showSaveModal, setShowSaveModal] = useState(false);
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
   const isCustom = selectedTileSize === 'custom';
@@ -77,29 +77,30 @@ export function VisualizerScreen() {
     wallColor,
   }), [roomType, dimensions.width, dimensions.length, dimensions.height, tw, th, selectedTile, zoneRows, wallColor]);
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await saveRoom({
-        name: `${roomLabel} Design`,
-        roomType,
-        dimensions: { length: dimensions.length, width: dimensions.width, height: dimensions.height },
-        tileSize: { width: tw, height: th },
-        zoneRows,
-        wallColor,
-        selectedTileSize,
-        selectedTileId:       selectedTile?.id       ?? '',
-        selectedTileName:     selectedTile?.name     ?? '',
-        selectedTileImageUri: selectedTile?.imageUri ?? '',
-        selectedTileColor:    selectedTile?.color    ?? '#cccccc',
-      });
-      setSaveStatus('success');
-    } catch (e: any) {
-      setSaveStatus('error');
-    } finally {
-      setSaving(false);
-    }
+  function handleSave() {
+    setShowSaveModal(true);
   }
+
+  function handleDesignSaved() {
+    // Navigate to saved designs screen
+    setActivePage('saved');
+  }
+
+  // Prepare design data for modal
+  const getDesignData = () => ({
+    roomType,
+    dimensions: { length: dimensions.length, width: dimensions.width, height: dimensions.height },
+    tileSize: { width: tw, height: th },
+    zoneRows,
+    wallColor,
+    selectedTileSize,
+    selectedTileId:       selectedTile?.id       ?? '',
+    selectedTileName:     selectedTile?.name     ?? '',
+    selectedTileImageUri: selectedTile?.imageUri ?? '',
+    selectedTileColor:    selectedTile?.color    ?? '#cccccc',
+  });
+
+  const defaultName = `${roomLabel} Design - ${new Date().toLocaleDateString()}`;
 
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: Colors.surface }}>
@@ -210,7 +211,7 @@ export function VisualizerScreen() {
         </ScrollView>
 
         <View style={s.footer}>
-          <Button label="💾 Save Design" onPress={handleSave} loading={saving} fullWidth variant="outline" />
+          <Button label="💾 Save Design" onPress={handleSave} fullWidth variant="outline" />
         </View>
       </View>
 
@@ -234,9 +235,6 @@ export function VisualizerScreen() {
           <ThreeCanvas config={liveConfig} />
         </View>
 
-        {/* Save toast — floats above the bottom bar */}
-        <SaveToast status={saveStatus} onHide={() => setSaveStatus(null)} />
-
         <View style={s.bottomBar}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 16, gap: 12 }}>
             {[
@@ -259,6 +257,15 @@ export function VisualizerScreen() {
           </ScrollView>
         </View>
       </View>
+
+      {/* Save Design Modal */}
+      <SaveDesignModal
+        visible={showSaveModal}
+        onClose={() => setShowSaveModal(false)}
+        onSuccess={handleDesignSaved}
+        designData={getDesignData()}
+        defaultName={defaultName}
+      />
     </View>
   );
 }

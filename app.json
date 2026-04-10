@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "tileviz_ui_v2",
-    "slug": "tileviz_ui_v2",
+    "name": "tileviz_ui_v4",
+    "slug": "tileviz_ui_v4",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,12 +21,19 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "package": "com.tileviz.tileviz_ui_v4"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-    ]
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7d3bfd51-c3dd-47ee-a381-4effd6a4bd55"
+      }
+    }
   }
 }

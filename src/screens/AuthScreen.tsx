@@ -1,8 +1,4 @@
-// ============================================================
-//  screens/AuthScreen.tsx
-//  Futuristic login form with animated background, glassmorphism
-//  card, TileViz logo, and matching intro-screen animations.
-// ============================================================
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, KeyboardAvoidingView,
@@ -130,6 +126,7 @@ export function AuthScreen({ onAuthenticated }: Props) {
     if (!email || !password) { setError('Please enter email and password'); return; }
     setLoading(true); setError('');
     try {
+
       const res = await apiLogin({ email, password });
       setUser(toAppUser(res.user));
       onAuthenticated();

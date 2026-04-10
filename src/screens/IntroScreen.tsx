@@ -12,13 +12,11 @@ import {
 import { Colors } from '../config/theme';
 import { TileVizLogo } from '../components/TileVizLogo';
 import { FuturisticBackground } from '../components/FuturisticBackground';
-import { useStaticDocumentTitle } from '../utils/useDocumentTitle';
 
 // ── Main IntroScreen ──────────────────────────────────────────
 interface Props { onContinue: () => void; }
 
 export function IntroScreen({ onContinue }: Props) {
-  useStaticDocumentTitle('Welcome');
   const { width } = useWindowDimensions();
   const isSmall = width < 600;
 

@@ -6,7 +6,6 @@
 // ============================================================
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, Platform } from 'react-native';
-import { useDocumentTitle, useStaticDocumentTitle } from '../utils/useDocumentTitle';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAuthStore } from '../store/auth.store';
@@ -91,9 +90,6 @@ export function AppNavigator() {
     setActivePage('visualizer');
     setShowIntro(true);
   }, []);
-
-  // ── Dynamic browser tab title ─────────────────────────────────
-  useDocumentTitle(activePage);
 
   // ── Loading splash ───────────────────────────────────────────
   if (!isReady) {

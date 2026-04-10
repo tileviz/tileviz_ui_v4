@@ -1,6 +1,6 @@
 // VisualizerScreen — full 3D visualizer with auto-preview & live updates
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, Animated, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, Animated } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
 import { useAppStore } from '../store/app.store';
@@ -10,6 +10,7 @@ import { ThreeCanvas, RoomBuildConfig } from '../three/ThreeCanvas';
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
+import { Alert } from '../utils/alert';
 
 // 35 curated wall colors — common Indian home paint palette
 const WALL_COLORS: Array<{ name: string; hex: string }> = [
@@ -93,10 +94,10 @@ export function VisualizerScreen() {
     zoneRows,
     wallColor,
     selectedTileSize,
-    selectedTileId: selectedTile?.id ?? '',
-    selectedTileName: selectedTile?.name ?? '',
+    selectedTileId:       selectedTile?.id       ?? '',
+    selectedTileName:     selectedTile?.name     ?? '',
     selectedTileImageUri: selectedTile?.imageUri ?? '',
-    selectedTileColor: selectedTile?.color ?? '#cccccc',
+    selectedTileColor:    selectedTile?.color    ?? '#cccccc',
   });
 
   const defaultName = `${roomLabel} Design - ${new Date().toLocaleDateString()}`;

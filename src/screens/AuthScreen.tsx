@@ -15,7 +15,6 @@ import { TileVizLogo } from '../components/TileVizLogo';
 import { FuturisticBackground } from '../components/FuturisticBackground';
 import { useAuthStore } from '../store/auth.store';
 import { apiLogin, toAppUser } from '../auth/auth.api';
-import { useStaticDocumentTitle } from '../utils/useDocumentTitle';
 
 // ── Futuristic text input ─────────────────────────────────────
 function GlassInput({
@@ -26,34 +25,22 @@ function GlassInput({
   keyboardType?: any; autoCapitalize?: any;
 }) {
   const [focused, setFocused] = useState(false);
-  const [passwordVisible, setPasswordVisible] = useState(false);
-  const isPassword = secureTextEntry === true;
-
   return (
     <View style={gi.container}>
       <Text style={gi.label}>{label}</Text>
       <View style={[gi.inputWrap, focused && gi.inputWrapFocused]}>
         <TextInput
-          style={[gi.input, isPassword && { paddingRight: 48 }]}
+          style={gi.input}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor="rgba(232,234,244,0.3)"
-          secureTextEntry={isPassword && !passwordVisible}
+          secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
-        {isPassword && (
-          <Pressable
-            onPress={() => setPasswordVisible(v => !v)}
-            style={gi.eyeBtn}
-            hitSlop={8}
-          >
-            <Text style={gi.eyeIcon}>{passwordVisible ? '👁' : '👁‍🗨'}</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -66,8 +53,6 @@ const gi = StyleSheet.create({
     letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6,
   },
   inputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(124,111,247,0.2)',
     borderRadius: 12,
@@ -86,25 +71,11 @@ const gi = StyleSheet.create({
     elevation: 4,
   },
   input: {
-    flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 14,
     color: '#E8EAF4',
     ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}),
-  },
-  eyeBtn: {
-    position: 'absolute',
-    right: 4,
-    top: 0,
-    bottom: 0,
-    width: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  eyeIcon: {
-    fontSize: 18,
-    opacity: 0.6,
   },
 });
 
@@ -112,7 +83,6 @@ const gi = StyleSheet.create({
 interface Props { onAuthenticated: () => void; }
 
 export function AuthScreen({ onAuthenticated }: Props) {
-  useStaticDocumentTitle('Sign In');
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isSmall = width < 600;

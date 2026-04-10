@@ -2,3 +2,5 @@ node_modules
 .expo
 .sixth
 .expo/
+.expo/*
+.expo-shared

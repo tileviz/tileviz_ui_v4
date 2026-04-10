@@ -2,7 +2,7 @@
 //  config/index.ts — App-wide constants. No hardcoding elsewhere.
 // ============================================================
 
-export const API_BASE_URL = 'http://localhost:5000';
+export const API_BASE_URL = 'http://13.233.250.198:5000';
 
 export const TOKEN_KEYS = {
   access:  'tileviz_access_token',

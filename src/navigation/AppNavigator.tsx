@@ -3,6 +3,7 @@
 //  Web blank screen fix: robust boot with timeout fallback.
 //  If session check takes >3s, proceed to auth screen anyway.
 //  IntroScreen → AuthScreen → Main App flow.
+//  Responsive: Phone shows bottom tab bar, Desktop/Tablet shows top nav.
 // ============================================================
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, Platform } from 'react-native';
@@ -10,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAuthStore } from '../store/auth.store';
 import { useAppStore } from '../store/app.store';
+import { useLayout } from '../hooks/useLayout';
 import { getAccessToken, authBus } from '../api/client';
 import { apiGetMe, apiLogout, toAppUser } from '../auth/auth.api';
 import { IntroScreen }        from '../screens/IntroScreen';
@@ -21,16 +23,51 @@ import { DashboardScreen }    from '../screens/DashboardScreen';
 import { AdminScreen }        from '../screens/AdminScreen';
 import { InventoryScreen }    from '../screens/InventoryScreen';
 import { AppHeader }          from '../components/AppHeader';
+import { BottomTabBar }       from '../components/BottomTabBar';
 
 export function AppNavigator() {
   console.log('[TileViz] AppNavigator rendering');
   const insets = useSafeAreaInsets();
   const { user, setUser, isReady, setReady } = useAuthStore();
   const { activePage, setActivePage } = useAppStore();
+  const { isPhone, showBottomTabs } = useLayout();
   const bootDone = useRef(false);
 
   // ── Intro → Auth flow state ─────────────────────────────────
   const [showIntro, setShowIntro] = useState(true);
+
+  // ── Dynamic page title for browser tab ──────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const pageTitles: Record<string, string> = {
+      visualizer: 'Visualizer',
+      catalog: 'Catalog',
+      saved: 'Saved Designs',
+      inventory: 'Inventory',
+      dashboard: 'Dashboard',
+      admin: 'Admin',
+    };
+    let title = 'TileVIZ';
+    if (!isReady) {
+      title = 'Loading... | TileVIZ';
+    } else if (!user && showIntro) {
+      title = 'Welcome | TileVIZ';
+    } else if (!user) {
+      title = 'Sign In | TileVIZ';
+    } else {
+      title = `${pageTitles[activePage] || 'Visualizer'} | TileVIZ`;
+    }
+    document.title = title;
+
+    // Set favicon programmatically to ensure correct icon shows
+    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = require('../../assets/favicon.png');
+  }, [isReady, user, showIntro, activePage]);
 
   // ── Session restore on boot ─────────────────────────────────
   useEffect(() => {
@@ -131,12 +168,15 @@ export function AppNavigator() {
     }
   };
 
+  const headerHeight = isPhone ? 52 : 62;
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.surface }}>
       <AppHeader onLogout={handleLogout} />
-      <View style={{ flex: 1, paddingBottom: Platform.OS === 'web' ? 0 : insets.bottom }}>
+      <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
         {renderPage()}
       </View>
+      {showBottomTabs && <BottomTabBar />}
     </View>
   );
 }

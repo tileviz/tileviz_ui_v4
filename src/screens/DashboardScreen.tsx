@@ -1,13 +1,14 @@
 // DashboardScreen — fixed UI bugs + data consistency (#8)
 // Both Admin and ShopOwner views unified here
 import React,{useEffect,useState,useCallback} from 'react';
-import {View,Text,ScrollView,TouchableOpacity,StyleSheet,ActivityIndicator,RefreshControl,Alert} from 'react-native';
+import {View,Text,ScrollView,TouchableOpacity,StyleSheet,ActivityIndicator,RefreshControl} from 'react-native';
 import {Colors,Radii,Shadows} from '../config/theme';
 import {RoleBadge} from '../components/RoleBadge';
 import {Button} from '../components/Button';
 import {useAuthStore} from '../store/auth.store';
 import {getAdminStats,getAdminShops,getAdminUsers,patchAdminUser,getMyShop,getMyShopSalesPersons,getCatalogRequests,reviewCatalogRequest} from '../api/admin';
 import {UserRole} from '../types';
+import {showAlert} from '../utils/alert';
 
 const PLAN_STYLE:Record<string,{bg:string;text:string;border:string}>={
   pro:       {bg:'#fdf9f2',text:Colors.gold,    border:Colors.gold   },
@@ -55,7 +56,7 @@ export function DashboardScreen(){
 
   async function handleToggleUser(id:string,isActive:boolean){
     try{await patchAdminUser(id,{isActive:!isActive});setUsers(prev=>prev.map(u=>u._id===id?{...u,isActive:!isActive}:u));}
-    catch(e:any){Alert.alert('Error',e?.response?.data?.message??'Failed');}
+    catch(e:any){showAlert('Error',e?.response?.data?.message??'Failed');}
   }
 
   async function handleReviewRequest(id:string,status:'approved'|'rejected'){
@@ -63,9 +64,9 @@ export function DashboardScreen(){
       await reviewCatalogRequest(id,status);
       setRequests(prev=>prev.filter(r=>r._id!==id));
       setStats((prev:any)=>({...prev,pendingCatalogRequests:(prev?.pendingCatalogRequests??1)-1}));
-      Alert.alert('Done',`Request ${status}.`);
+      showAlert('Done',`Request ${status}.`);
     }catch(e:any){
-      Alert.alert('Error',e?.response?.data?.message??'Failed');
+      showAlert('Error',e?.response?.data?.message??'Failed');
     }
   }
 

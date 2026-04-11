@@ -12,6 +12,27 @@ import { FuturisticBackground } from '../components/FuturisticBackground';
 import { useAuthStore } from '../store/auth.store';
 import { apiLogin, toAppUser } from '../auth/auth.api';
 
+// ── Eye icon SVG paths ────────────────────────────────────────
+const EyeOpenIcon = () => (
+  <View style={{ width: 22, height: 22 }}>
+    {Platform.OS === 'web' ? (
+      <div dangerouslySetInnerHTML={{ __html: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(232,234,244,0.5)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>` }} />
+    ) : (
+      <Text style={{ fontSize: 18, color: 'rgba(232,234,244,0.5)' }}>👁</Text>
+    )}
+  </View>
+);
+
+const EyeClosedIcon = () => (
+  <View style={{ width: 22, height: 22 }}>
+    {Platform.OS === 'web' ? (
+      <div dangerouslySetInnerHTML={{ __html: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(232,234,244,0.5)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>` }} />
+    ) : (
+      <Text style={{ fontSize: 18, color: 'rgba(232,234,244,0.5)' }}>🙈</Text>
+    )}
+  </View>
+);
+
 // ── Futuristic text input ─────────────────────────────────────
 function GlassInput({
   label, value, onChangeText, placeholder, secureTextEntry, keyboardType, autoCapitalize,
@@ -21,22 +42,36 @@ function GlassInput({
   keyboardType?: any; autoCapitalize?: any;
 }) {
   const [focused, setFocused] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const isPassword = secureTextEntry === true;
+
   return (
     <View style={gi.container}>
       <Text style={gi.label}>{label}</Text>
       <View style={[gi.inputWrap, focused && gi.inputWrapFocused]}>
-        <TextInput
-          style={gi.input}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor="rgba(232,234,244,0.3)"
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-        />
+        <View style={gi.inputRow}>
+          <TextInput
+            style={[gi.input, isPassword && gi.inputWithIcon]}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="rgba(232,234,244,0.3)"
+            secureTextEntry={isPassword && !passwordVisible}
+            keyboardType={keyboardType}
+            autoCapitalize={autoCapitalize}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+          />
+          {isPassword && (
+            <Pressable
+              onPress={() => setPasswordVisible(!passwordVisible)}
+              style={gi.eyeBtn}
+              hitSlop={8}
+            >
+              {passwordVisible ? <EyeOpenIcon /> : <EyeClosedIcon />}
+            </Pressable>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -66,12 +101,26 @@ const gi = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   input: {
+    flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 14,
     color: '#E8EAF4',
     ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}),
+  },
+  inputWithIcon: {
+    paddingRight: 4,
+  },
+  eyeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
@@ -232,12 +281,7 @@ export function AuthScreen({ onAuthenticated }: Props) {
               </Animated.View>
             </Pressable>
 
-            {/* Demo credentials */}
-            <View style={styles.demoBox}>
-              <Text style={styles.demoTitle}>Demo Credentials</Text>
-              <Text style={styles.demoText}>admin@tileviz.com · admin password</Text>
-              <Text style={styles.demoText}>owner@shop.com · shop owner</Text>
-            </View>
+
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -339,26 +383,5 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: 0.5,
   },
-  demoBox: {
-    marginTop: 20,
-    width: '100%',
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: 'rgba(124, 111, 247, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(124, 111, 247, 0.12)',
-  },
-  demoTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(232,234,244,0.5)',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  demoText: {
-    fontSize: 12,
-    color: 'rgba(232,234,244,0.45)',
-    lineHeight: 20,
-  },
+
 });

@@ -1,16 +1,18 @@
 // VisualizerScreen — full 3D visualizer with auto-preview & live updates
+// Responsive: Phone shows full-screen canvas with slide-up settings panel
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, Animated } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, Animated, Modal, Pressable, Platform } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
 import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
+import { useLayout } from '../hooks/useLayout';
 import { RoomType } from '../types';
 import { ThreeCanvas, RoomBuildConfig } from '../three/ThreeCanvas';
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
-import { Alert } from '../utils/alert';
+import { showAlert } from '../utils/alert';
 
 // 35 curated wall colors — common Indian home paint palette
 const WALL_COLORS: Array<{ name: string; hex: string }> = [
@@ -51,10 +53,131 @@ function SaveToast({ status, onHide }: { status: 'success' | 'error' | null; onH
   );
 }
 
+// ── Sidebar content (reused in both desktop sidebar and mobile modal) ──
+function SidebarContent({
+  roomType, setRoomType, dimensions, setDimensions,
+  selectedTileSize, setTileSize, isCustom, customW, setCustomW, customH, setCustomH,
+  rowCount, wallColor, setWallColor, selectedTile, handleSave,
+}: any) {
+  return (
+    <>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
+        {/* Room Type */}
+        <View style={s.sec}>
+          <Text style={s.secLbl}>Room Type</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {ROOM_TYPES.map(({ key, icon, label }) => (
+              <TouchableOpacity key={key} onPress={() => setRoomType(key as RoomType)} style={[s.roomCard, roomType === key && s.roomCardActive]}>
+                <Text style={{ fontSize: 20, marginBottom: 3 }}>{icon}</Text>
+                <Text style={[{ fontSize: 11, fontWeight: '500', color: Colors.text2 }, roomType === key && { color: Colors.gold, fontWeight: '600' }]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Dimensions */}
+        <View style={s.sec}>
+          <Text style={s.secLbl}>Room Dimensions (ft)</Text>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {[{ k: 'width', l: 'Width', a: 'X', v: dimensions.width }, { k: 'length', l: 'Length', a: 'Z', v: dimensions.length }, { k: 'height', l: 'Height', a: 'Y', v: dimensions.height }].map(d => (
+              <View key={d.k} style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
+                  <Text style={{ fontSize: 10, color: Colors.text3 }}>{d.l} </Text>
+                  <View style={{ backgroundColor: Colors.gold, borderRadius: 3, paddingHorizontal: 3, paddingVertical: 1 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: Colors.primary2 }}>{d.a}</Text>
+                  </View>
+                </View>
+                <TextInput style={s.dimInput} value={String(d.v)} keyboardType="numeric" onChangeText={v => setDimensions({ ...dimensions, [d.k]: parseFloat(v) || 1 })} />
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Tile Size */}
+        <View style={s.sec}>
+          <Text style={s.secLbl}>Tile Size</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+            {TILE_SIZES.map(sz => (
+              <TouchableOpacity key={sz} onPress={() => setTileSize(sz)} style={[s.chip, selectedTileSize === sz && s.chipActive]}>
+                <Text style={[{ fontSize: 11, fontWeight: '500', color: Colors.text1 }, selectedTileSize === sz && { color: Colors.primary2 }]}>
+                  {sz === 'custom' ? '✏️ Custom' : sz}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {isCustom && (
+            <View style={{ marginTop: 10, backgroundColor: Colors.surface, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: Colors.border }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: Colors.text3, marginBottom: 6 }}>Custom Size (inches)</Text>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, color: Colors.text3, marginBottom: 3 }}>Width</Text>
+                  <TextInput style={[s.dimInput, { textAlign: 'center', fontSize: 14, fontWeight: '600' }]} value={customW} keyboardType="numeric" placeholder="12" onChangeText={setCustomW} />
+                </View>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.gold, marginTop: 12 }}>×</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, color: Colors.text3, marginBottom: 3 }}>Height</Text>
+                  <TextInput style={[s.dimInput, { textAlign: 'center', fontSize: 14, fontWeight: '600' }]} value={customH} keyboardType="numeric" placeholder="12" onChangeText={setCustomH} />
+                </View>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: Colors.text3, marginTop: 12 }}>in</Text>
+              </View>
+            </View>
+          )}
+          <Text style={{ fontSize: 11, color: Colors.text3, marginTop: 8 }}>
+            Wall rows: <Text style={{ fontWeight: '700', color: Colors.text1 }}>{rowCount}</Text>
+          </Text>
+        </View>
+
+        {/* Wall Color */}
+        <View style={s.sec}>
+          <Text style={s.secLbl}>Wall Color</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+            {WALL_COLORS.map(c => (
+              <TouchableOpacity key={c.hex} onPress={() => setWallColor(c.hex)} style={[s.colorSwatch, { backgroundColor: c.hex }, wallColor === c.hex && s.colorSwatchActive]}>
+                {wallColor === c.hex && <Text style={{ fontSize: 9, color: wallColor < '#888' ? '#fff' : '#333' }}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={{ fontSize: 10, color: Colors.text3, marginTop: 6 }}>
+            {WALL_COLORS.find(c => c.hex === wallColor)?.name || 'Custom'}
+          </Text>
+        </View>
+
+        {/* Selected Tile */}
+        <View style={s.sec}>
+          <Text style={s.secLbl}>Selected Tile</Text>
+          {selectedTile ? (
+            <View style={{ flexDirection: 'row', gap: 9 }}>
+              {selectedTile.imageUri ? (
+                <Image source={{ uri: selectedTile.imageUri }} style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }} resizeMode="cover" />
+              ) : (
+                <View style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, backgroundColor: selectedTile.color || '#ccc' }} />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.text1 }} numberOfLines={1}>{selectedTile.name}</Text>
+                <Text style={{ fontSize: 10, color: Colors.text3 }}>{selectedTile.widthIn}×{selectedTile.heightIn}in</Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={{ fontSize: 12, color: Colors.text3, lineHeight: 18 }}>
+              No tile selected. Go to Tile Catalog to pick a design.
+            </Text>
+          )}
+        </View>
+      </ScrollView>
+
+      <View style={s.footer}>
+        <Button label="💾 Save Design" onPress={handleSave} fullWidth variant="outline" />
+      </View>
+    </>
+  );
+}
+
 export function VisualizerScreen() {
   const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage } = useAppStore();
   const { selectedTile } = useCatalogStore();
+  const { isPhone, isTablet } = useLayout();
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
   const isCustom = selectedTileSize === 'custom';
@@ -79,14 +202,13 @@ export function VisualizerScreen() {
 
   function handleSave() {
     setShowSaveModal(true);
+    setShowSettings(false);
   }
 
   function handleDesignSaved() {
-    // Navigate to saved designs screen
     setActivePage('saved');
   }
 
-  // Prepare design data for modal
   const getDesignData = () => ({
     roomType,
     dimensions: { length: dimensions.length, width: dimensions.width, height: dimensions.height },
@@ -102,117 +224,96 @@ export function VisualizerScreen() {
 
   const defaultName = `${roomLabel} Design - ${new Date().toLocaleDateString()}`;
 
+  const sidebarProps = {
+    roomType, setRoomType, dimensions, setDimensions,
+    selectedTileSize, setTileSize, isCustom, customW, setCustomW, customH, setCustomH,
+    rowCount, wallColor, setWallColor, selectedTile, handleSave,
+  };
+
+  // ─── PHONE LAYOUT ─────────────────────────────────────────────
+  if (isPhone) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.surface }}>
+        {/* Full-screen 3D Canvas */}
+        <View style={{ flex: 1, backgroundColor: '#e8e4dc', overflow: 'hidden' }}>
+          <ThreeCanvas config={liveConfig} />
+
+          {/* Compact floating info bar */}
+          <View style={s.mobileInfoBar}>
+            <Text style={s.mobileInfoText}>{roomLabel}</Text>
+            <View style={s.mobileInfoDivider} />
+            <Text style={s.mobileInfoText}>{dimensions.length}×{dimensions.width}×{dimensions.height} ft</Text>
+            <View style={s.mobileInfoDivider} />
+            <Text style={s.mobileInfoText}>{tilesNeeded}</Text>
+          </View>
+        </View>
+
+        {/* Bottom stats bar + settings button */}
+        <View style={s.mobileBottomBar}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+            {[
+              { val: tilesNeeded.toLocaleString(), lbl: 'TILES' },
+              { val: String(totalSqFt), lbl: 'SQ FT' },
+              { val: isCustom ? `${tw}x${th}` : selectedTileSize, lbl: 'SIZE' },
+            ].map((stat, i) => (
+              <React.Fragment key={i}>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#E0E3F5' }}>{stat.val}</Text>
+                  <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.lbl}</Text>
+                </View>
+                {i < 2 && <View style={{ width: 1, height: 24, backgroundColor: 'rgba(124,111,247,0.2)' }} />}
+              </React.Fragment>
+            ))}
+          </View>
+
+          {/* Settings FAB */}
+          <TouchableOpacity
+            onPress={() => setShowSettings(true)}
+            style={s.settingsFab}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 16 }}>⚙️</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Settings Modal (slide up panel) */}
+        <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
+          <Pressable style={s.settingsBackdrop} onPress={() => setShowSettings(false)}>
+            <Pressable style={s.settingsPanel} onPress={() => {}}>
+              {/* Handle bar */}
+              <View style={s.settingsHandleBar}>
+                <View style={s.settingsHandle} />
+              </View>
+              {/* Header */}
+              <View style={s.settingsHeader}>
+                <Text style={s.settingsTitle}>Room Settings</Text>
+                <TouchableOpacity onPress={() => setShowSettings(false)} hitSlop={10}>
+                  <Text style={{ fontSize: 18, color: Colors.text3 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <SidebarContent {...sidebarProps} />
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* Save Design Modal */}
+        <SaveDesignModal
+          visible={showSaveModal}
+          onClose={() => setShowSaveModal(false)}
+          onSuccess={handleDesignSaved}
+          designData={getDesignData()}
+          defaultName={defaultName}
+        />
+      </View>
+    );
+  }
+
+  // ─── DESKTOP / TABLET LAYOUT ──────────────────────────────────
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: Colors.surface }}>
       {/* SIDEBAR */}
-      <View style={s.sidebar}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
-          {/* Room Type */}
-          <View style={s.sec}>
-            <Text style={s.secLbl}>Room Type</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {ROOM_TYPES.map(({ key, icon, label }) => (
-                <TouchableOpacity key={key} onPress={() => setRoomType(key as RoomType)} style={[s.roomCard, roomType === key && s.roomCardActive]}>
-                  <Text style={{ fontSize: 20, marginBottom: 3 }}>{icon}</Text>
-                  <Text style={[{ fontSize: 11, fontWeight: '500', color: Colors.text2 }, roomType === key && { color: Colors.gold, fontWeight: '600' }]}>{label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Dimensions */}
-          <View style={s.sec}>
-            <Text style={s.secLbl}>Room Dimensions (ft)</Text>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {[{ k: 'width', l: 'Width', a: 'X', v: dimensions.width }, { k: 'length', l: 'Length', a: 'Z', v: dimensions.length }, { k: 'height', l: 'Height', a: 'Y', v: dimensions.height }].map(d => (
-                <View key={d.k} style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-                    <Text style={{ fontSize: 10, color: Colors.text3 }}>{d.l} </Text>
-                    <View style={{ backgroundColor: Colors.gold, borderRadius: 3, paddingHorizontal: 3, paddingVertical: 1 }}>
-                      <Text style={{ fontSize: 9, fontWeight: '700', color: Colors.primary2 }}>{d.a}</Text>
-                    </View>
-                  </View>
-                  <TextInput style={s.dimInput} value={String(d.v)} keyboardType="numeric" onChangeText={v => setDimensions({ ...dimensions, [d.k]: parseFloat(v) || 1 })} />
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Tile Size */}
-          <View style={s.sec}>
-            <Text style={s.secLbl}>Tile Size</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-              {TILE_SIZES.map(sz => (
-                <TouchableOpacity key={sz} onPress={() => setTileSize(sz)} style={[s.chip, selectedTileSize === sz && s.chipActive]}>
-                  <Text style={[{ fontSize: 11, fontWeight: '500', color: Colors.text1 }, selectedTileSize === sz && { color: Colors.primary2 }]}>
-                    {sz === 'custom' ? '✏️ Custom' : sz}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            {isCustom && (
-              <View style={{ marginTop: 10, backgroundColor: Colors.surface, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: Colors.border }}>
-                <Text style={{ fontSize: 10, fontWeight: '600', color: Colors.text3, marginBottom: 6 }}>Custom Size (inches)</Text>
-                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 9, color: Colors.text3, marginBottom: 3 }}>Width</Text>
-                    <TextInput style={[s.dimInput, { textAlign: 'center', fontSize: 14, fontWeight: '600' }]} value={customW} keyboardType="numeric" placeholder="12" onChangeText={setCustomW} />
-                  </View>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.gold, marginTop: 12 }}>×</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 9, color: Colors.text3, marginBottom: 3 }}>Height</Text>
-                    <TextInput style={[s.dimInput, { textAlign: 'center', fontSize: 14, fontWeight: '600' }]} value={customH} keyboardType="numeric" placeholder="12" onChangeText={setCustomH} />
-                  </View>
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: Colors.text3, marginTop: 12 }}>in</Text>
-                </View>
-              </View>
-            )}
-            <Text style={{ fontSize: 11, color: Colors.text3, marginTop: 8 }}>
-              Wall rows: <Text style={{ fontWeight: '700', color: Colors.text1 }}>{rowCount}</Text>
-            </Text>
-          </View>
-
-          {/* Wall Color */}
-          <View style={s.sec}>
-            <Text style={s.secLbl}>Wall Color</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-              {WALL_COLORS.map(c => (
-                <TouchableOpacity key={c.hex} onPress={() => setWallColor(c.hex)} style={[s.colorSwatch, { backgroundColor: c.hex }, wallColor === c.hex && s.colorSwatchActive]}>
-                  {wallColor === c.hex && <Text style={{ fontSize: 9, color: wallColor < '#888' ? '#fff' : '#333' }}>✓</Text>}
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={{ fontSize: 10, color: Colors.text3, marginTop: 6 }}>
-              {WALL_COLORS.find(c => c.hex === wallColor)?.name || 'Custom'}
-            </Text>
-          </View>
-
-          {/* Selected Tile */}
-          <View style={s.sec}>
-            <Text style={s.secLbl}>Selected Tile</Text>
-            {selectedTile ? (
-              <View style={{ flexDirection: 'row', gap: 9 }}>
-                {selectedTile.imageUri ? (
-                  <Image source={{ uri: selectedTile.imageUri }} style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }} resizeMode="cover" />
-                ) : (
-                  <View style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, backgroundColor: selectedTile.color || '#ccc' }} />
-                )}
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.text1 }} numberOfLines={1}>{selectedTile.name}</Text>
-                  <Text style={{ fontSize: 10, color: Colors.text3 }}>{selectedTile.widthIn}×{selectedTile.heightIn}in</Text>
-                </View>
-              </View>
-            ) : (
-              <Text style={{ fontSize: 12, color: Colors.text3, lineHeight: 18 }}>
-                No tile selected. Go to Tile Catalog to pick a design.
-              </Text>
-            )}
-          </View>
-        </ScrollView>
-
-        <View style={s.footer}>
-          <Button label="💾 Save Design" onPress={handleSave} fullWidth variant="outline" />
-        </View>
+      <View style={[s.sidebar, isTablet && { width: 200 }]}>
+        <SidebarContent {...sidebarProps} />
       </View>
 
       {/* MAIN — 3D canvas */}
@@ -252,7 +353,7 @@ export function VisualizerScreen() {
               </React.Fragment>
             ))}
             <View style={{ flexDirection: 'row', gap: 8, marginLeft: 8 }}>
-              <Button label="📤 Share" onPress={() => Alert.alert('Share', 'Coming soon')} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
+              <Button label="📤 Share" onPress={() => showAlert('Share', 'Coming soon')} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
             </View>
           </ScrollView>
         </View>
@@ -271,6 +372,7 @@ export function VisualizerScreen() {
 }
 
 const s = StyleSheet.create({
+  // ── Desktop sidebar ──────────────────────────
   sidebar: { width: 220, backgroundColor: Colors.white, borderRightWidth: 1, borderRightColor: Colors.border },
   sec: { padding: 14, borderBottomWidth: 1, borderBottomColor: Colors.surface2 },
   secLbl: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2, color: Colors.text3, marginBottom: 10 },
@@ -282,12 +384,108 @@ const s = StyleSheet.create({
   colorSwatch: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
   colorSwatchActive: { borderColor: Colors.gold, borderWidth: 2.5, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 3 },
   footer: { padding: 14, borderTopWidth: 1, borderTopColor: Colors.border, backgroundColor: Colors.white },
+
+  // ── Desktop info/bottom bars ──────────────────
   infoBar: { position: 'absolute', top: 12, left: 12, backgroundColor: Colors.primary, borderWidth: 1, borderColor: 'rgba(124,111,247,0.2)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', gap: 20, zIndex: 10, ...Shadows.header },
   bottomBar: { backgroundColor: Colors.primary, borderTopWidth: 1, borderTopColor: 'rgba(124,111,247,0.15)', height: 58 },
-  // Save toast
+
+  // ── Phone-specific styles ─────────────────────
+  mobileInfoBar: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    zIndex: 10,
+    opacity: 0.92,
+  },
+  mobileInfoText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#E0E3F5',
+  },
+  mobileInfoDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: 'rgba(124,111,247,0.3)',
+  },
+  mobileBottomBar: {
+    backgroundColor: Colors.primary,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(124,111,247,0.15)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingsFab: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    ...Shadows.card,
+  },
+  settingsBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  settingsPanel: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    ...(Platform.OS === 'web' ? {
+      boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
+    } as any : {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 24,
+      elevation: 20,
+    }),
+  },
+  settingsHandleBar: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  settingsHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+  },
+  settingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surface2,
+  },
+  settingsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text1,
+  },
+
+  // ── Toast ─────────────────────────────────────
   toast: { position: 'absolute', bottom: 66, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 24, ...Shadows.header },
   toastOk: { backgroundColor: '#1a9e5c' },
   toastErr: { backgroundColor: '#d93025' },
   toastIcon: { fontSize: 16 },
   toastTxt: { fontSize: 14, fontWeight: '600', color: '#fff' },
 });
+

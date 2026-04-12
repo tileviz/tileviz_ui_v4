@@ -1,15 +1,17 @@
 // ============================================================
 //  components/SaveInventoryModal.tsx
 //  Modal form for saving inventory with metadata
+//  Uses toast notifications instead of blocking alerts
 // ============================================================
 
 import React, { useState } from 'react';
 import {
   View, Text, Modal, TextInput, TouchableOpacity,
-  StyleSheet, Alert, ScrollView, ActivityIndicator,
+  StyleSheet, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { createInventory, CreateInventoryPayload } from '../api';
+import { showAlert } from '../utils/alert';
 
 interface Props {
   visible: boolean;
@@ -23,11 +25,13 @@ export function SaveInventoryModal({ visible, onClose, onSuccess, designData }: 
   const [inventoryId, setInventoryId] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [validationError, setValidationError] = useState('');
 
   const resetForm = () => {
     setInventoryName('');
     setInventoryId('');
     setNotes('');
+    setValidationError('');
   };
 
   const handleClose = () => {
@@ -36,17 +40,18 @@ export function SaveInventoryModal({ visible, onClose, onSuccess, designData }: 
   };
 
   const handleSave = async () => {
-    // Validate required fields
+    // Validate required fields — inline error instead of blocking alert
     if (!inventoryName.trim()) {
-      Alert.alert('Missing Information', 'Please enter a name for this inventory.');
+      setValidationError('Please enter a name for this inventory.');
       return;
     }
 
     if (!inventoryId.trim()) {
-      Alert.alert('Missing Information', 'Please enter an inventory ID.');
+      setValidationError('Please enter an inventory ID.');
       return;
     }
 
+    setValidationError('');
     setSaving(true);
     try {
       const payload: CreateInventoryPayload = {
@@ -61,23 +66,16 @@ export function SaveInventoryModal({ visible, onClose, onSuccess, designData }: 
       setSaving(false);
       onClose();
 
-      // Then show success alert and trigger navigation
-      Alert.alert(
+      // Show non-intrusive toast and trigger navigation
+      showAlert(
         '✅ Success!',
-        `"${inventoryName}" has been saved to inventory.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              onSuccess();
-            },
-          },
-        ]
+        `"${inventoryName}" has been saved to inventory.`
       );
+      onSuccess();
     } catch (error: any) {
       console.error('Save inventory error:', error);
       setSaving(false);
-      Alert.alert(
+      showAlert(
         '❌ Error',
         error.message || 'Failed to save inventory. Please try again.'
       );
@@ -106,17 +104,24 @@ export function SaveInventoryModal({ visible, onClose, onSuccess, designData }: 
 
           {/* Form */}
           <ScrollView style={s.form} showsVerticalScrollIndicator={false}>
+            {/* Validation error message */}
+            {validationError ? (
+              <View style={s.validationBanner}>
+                <Text style={s.validationText}>⚠️ {validationError}</Text>
+              </View>
+            ) : null}
+
             {/* Inventory Name */}
             <View style={s.field}>
               <Text style={s.label}>
                 Inventory Name <Text style={{ color: Colors.danger }}>*</Text>
               </Text>
               <TextInput
-                style={s.input}
+                style={[s.input, !inventoryName.trim() && validationError ? s.inputError : null]}
                 placeholder="e.g., Modern Bathroom Suite"
                 placeholderTextColor={Colors.text3}
                 value={inventoryName}
-                onChangeText={setInventoryName}
+                onChangeText={(v) => { setInventoryName(v); setValidationError(''); }}
                 editable={!saving}
               />
             </View>
@@ -127,11 +132,11 @@ export function SaveInventoryModal({ visible, onClose, onSuccess, designData }: 
                 Inventory ID <Text style={{ color: Colors.danger }}>*</Text>
               </Text>
               <TextInput
-                style={s.input}
+                style={[s.input, !inventoryId.trim() && validationError ? s.inputError : null]}
                 placeholder="e.g., INV-2026-001"
                 placeholderTextColor={Colors.text3}
                 value={inventoryId}
-                onChangeText={setInventoryId}
+                onChangeText={(v) => { setInventoryId(v); setValidationError(''); }}
                 editable={!saving}
               />
               <Text style={s.hint}>
@@ -296,6 +301,10 @@ const s = StyleSheet.create({
     color: Colors.text1,
     backgroundColor: Colors.white,
   },
+  inputError: {
+    borderColor: Colors.danger,
+    borderWidth: 1.5,
+  },
   textArea: {
     minHeight: 80,
     paddingTop: 10,
@@ -311,6 +320,19 @@ const s = StyleSheet.create({
     fontSize: 11,
     color: Colors.text3,
     marginTop: 4,
+  },
+  validationBanner: {
+    backgroundColor: 'rgba(224, 82, 82, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(224, 82, 82, 0.25)',
+    borderRadius: Radii.md,
+    padding: 10,
+    marginBottom: 16,
+  },
+  validationText: {
+    fontSize: 12,
+    color: Colors.danger,
+    fontWeight: '500',
   },
   previewCard: {
     backgroundColor: Colors.surface,

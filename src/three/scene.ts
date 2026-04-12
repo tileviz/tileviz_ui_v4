@@ -10,9 +10,15 @@ export interface SceneBundle {
 export function createScene(gl: any, w: number, h: number): SceneBundle {
   // Dynamic require — expo-three is native only, top-level import crashes web
   const { Renderer } = require('expo-three');
+  
+  // In expo-gl, we pass the gl context and it automatically configures
+  // the size and pixel ratio based on the native drawing buffer.
   const renderer = new Renderer({ gl });
-  renderer.setSize(w, h);
-  renderer.setPixelRatio(Math.min(2, 2));
+  
+  // Set logical size for the viewport calculations without CSS overrides
+  renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
+  renderer.setPixelRatio(1); // expo-gl is already physical-pixel backed
+
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor(0xe8e2d8, 1);
@@ -54,8 +60,9 @@ export function createScene(gl: any, w: number, h: number): SceneBundle {
 // ── Web renderer (standard THREE.WebGLRenderer on a <canvas>) ─
 export function createWebScene(canvas: HTMLCanvasElement, w: number, h: number): SceneBundle {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setSize(w, h);
+  // CRITICAL: Set pixelRatio BEFORE setSize, and use false to preserve canvas CSS
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h, false); // false = don't override canvas CSS dimensions
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor(0xe8e2d8, 1);

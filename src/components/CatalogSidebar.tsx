@@ -1,8 +1,9 @@
 // CatalogSidebar — right panel: Room Select → Dimensions → Zone Assignment → Actions
+// On mobile: auto-closes when a row is tapped so catalog grid becomes visible
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Alert, Image,
+  StyleSheet, Image,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { ROOM_TYPES, ROOM_DEFAULTS, TILE_SIZES } from '../config';
@@ -12,6 +13,8 @@ import { useAuthStore } from '../store/auth.store';
 import { RoomType } from '../types';
 import { SaveInventoryModal } from './SaveInventoryModal';
 import { CreateInventoryPayload } from '../api';
+import { useLayout } from '../hooks/useLayout';
+import { showAlert } from '../utils/alert';
 
 // Which surfaces get zones per room type
 const SURFACE_RULES: Record<RoomType, { walls: boolean; floor: boolean; wallCount: number }> = {
@@ -28,6 +31,7 @@ interface Props {
 
 export function CatalogSidebar({ onGenerate3D }: Props) {
   const { user } = useAuthStore();
+  const { isPhone } = useLayout();
   const {
     roomType, setRoomType, dimensions, setDimensions,
     selectedTileSize, setTileSize, zoneRows, setZoneRows, wallColor, setActivePage,
@@ -67,7 +71,19 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
 
   function focusRow(wallKey: string, rowIndex: number) {
     const k = `${wallKey}:${rowIndex}`;
-    setAssigningKey(assigningKey === k ? null : k);
+    if (assigningKey === k) {
+      // Toggle off
+      setAssigningKey(null);
+    } else {
+      // Set assigning mode
+      setAssigningKey(k);
+      // On mobile, auto-close sidebar so user can see the catalog tiles
+      if (isPhone) {
+        setSidebarOpen(false);
+        const label = wallKey === 'floor' ? 'Floor Tile' : `Row ${rowIndex + 1}`;
+        showAlert('Select a Tile', `Tap a tile from the catalog to assign it to ${label}`);
+      }
+    }
   }
 
   function clearRow(wallKey: string, rowIndex: number) {
@@ -120,7 +136,7 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
   const totalRows = surfaces.reduce((sum, s) => sum + s.rows, 0);
 
   return (
-    <View style={st.container}>
+    <View style={[st.container, isPhone && st.containerMobile]}>
       {/* ── Header ── */}
       <View style={st.header}>
         <View style={{ flex: 1 }}>
@@ -324,6 +340,11 @@ const st = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: Colors.border,
     ...Shadows.card,
+  },
+  containerMobile: {
+    width: '100%' as any,
+    flex: 1,
+    borderLeftWidth: 0,
   },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

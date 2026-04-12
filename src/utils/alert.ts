@@ -1,12 +1,55 @@
 // ============================================================
-//  utils/alert.ts — Platform-aware alert utilities
-//  Works on both web (window.confirm/alert) and native (Alert)
+//  utils/alert.ts — Platform-aware alert & toast utilities
+//  Success/info/error → non-intrusive toast (react-native-toast-message)
+//  Confirmations → native Alert (requires user decision)
 // ============================================================
 
 import { Alert, Platform } from 'react-native';
+import Toast from 'react-native-toast-message';
+
+/**
+ * Show a non-intrusive toast notification (replaces blocking Alert.alert)
+ * Auto-dismisses after ~3 seconds. Does NOT block the UI.
+ * @param title - Toast title
+ * @param message - Toast body (optional)
+ * @param onDismiss - Optional callback, fires immediately (non-blocking)
+ */
+export function showAlert(
+  title: string,
+  message?: string,
+  onDismiss?: () => void
+): void {
+  // Determine toast type from title keywords
+  const lower = title.toLowerCase();
+  let type: 'success' | 'error' | 'info' = 'info';
+  if (lower.includes('success') || lower.includes('saved') || lower.includes('deleted') || lower.includes('done') || lower.includes('created') || title.includes('✅')) {
+    type = 'success';
+  } else if (lower.includes('error') || lower.includes('fail') || lower.includes('denied') || title.includes('❌')) {
+    type = 'error';
+  }
+
+  // Strip emoji prefixes from title for cleaner display
+  const cleanTitle = title.replace(/^[✅❌⚠️ℹ️🎉💾📤🔍]+\s*/g, '').trim() || title;
+
+  Toast.show({
+    type,
+    text1: cleanTitle,
+    text2: message || undefined,
+    position: 'top',
+    visibilityTime: type === 'error' ? 4000 : 3000,
+    autoHide: true,
+    topOffset: 50,
+  });
+
+  // Fire callback immediately — non-blocking
+  if (onDismiss) {
+    onDismiss();
+  }
+}
 
 /**
  * Show a confirmation dialog that works on both web and native platforms
+ * This remains a blocking dialog since confirmations require user decision.
  * @param title - Dialog title
  * @param message - Dialog message
  * @param onConfirm - Callback when user confirms
@@ -44,38 +87,6 @@ export function showConfirm(
         },
       ],
       { cancelable: true }
-    );
-  }
-}
-
-/**
- * Show a simple alert message that works on both web and native platforms
- * @param title - Alert title
- * @param message - Alert message
- * @param onDismiss - Optional callback when alert is dismissed
- */
-export function showAlert(
-  title: string,
-  message?: string,
-  onDismiss?: () => void
-): void {
-  if (Platform.OS === 'web') {
-    // Web: Use window.alert
-    if (message) {
-      window.alert(`${title}\n\n${message}`);
-    } else {
-      window.alert(title);
-    }
-    if (onDismiss) {
-      onDismiss();
-    }
-  } else {
-    // Native: Use React Native Alert
-    Alert.alert(
-      title,
-      message,
-      [{ text: 'OK', onPress: onDismiss }],
-      { cancelable: false }
     );
   }
 }
@@ -119,3 +130,48 @@ export function showAlertWithButtons(
   }
 }
 
+/**
+ * Convenience: show a success toast
+ */
+export function showSuccess(title: string, message?: string, onDismiss?: () => void): void {
+  Toast.show({
+    type: 'success',
+    text1: title,
+    text2: message || undefined,
+    position: 'top',
+    visibilityTime: 3000,
+    autoHide: true,
+    topOffset: 50,
+  });
+  if (onDismiss) onDismiss();
+}
+
+/**
+ * Convenience: show an error toast
+ */
+export function showError(title: string, message?: string): void {
+  Toast.show({
+    type: 'error',
+    text1: title,
+    text2: message || undefined,
+    position: 'top',
+    visibilityTime: 4000,
+    autoHide: true,
+    topOffset: 50,
+  });
+}
+
+/**
+ * Convenience: show a warning toast
+ */
+export function showWarning(title: string, message?: string): void {
+  Toast.show({
+    type: 'warning',
+    text1: title,
+    text2: message || undefined,
+    position: 'top',
+    visibilityTime: 3500,
+    autoHide: true,
+    topOffset: 50,
+  });
+}

@@ -54,6 +54,8 @@ export interface ZoneRow {
   tileImageUri?: string;
   color?:        string;
   pattern?:      string;
+  tileWidthIn?:  number;
+  tileHeightIn?: number;
 }
 
 // ── Saved Design ─────────────────────────────────────────────

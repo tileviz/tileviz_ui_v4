@@ -1,8 +1,12 @@
-// UploadTileModal — multipart tile upload with real image preview
+// ============================================================
+//  UploadTileModal — Tile upload with camera, gallery, and
+//  inline image editing (crop/rotate) before upload.
+//  Uses toast notifications instead of blocking alerts.
+// ============================================================
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal, Pressable,
-  ScrollView, Alert, Image, Platform,
+  ScrollView, Image, Platform, ActivityIndicator,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { FormInput } from './FormInput';
@@ -10,6 +14,7 @@ import { Button } from './Button';
 import { useAuthStore } from '../store/auth.store';
 import { uploadTile } from '../api/tiles';
 import { ROOM_TYPES } from '../config';
+import { showAlert } from '../utils/alert';
 
 interface Props { visible: boolean; onClose: () => void; onUploaded?: () => void; }
 
@@ -18,6 +23,7 @@ const CATS = ['marble', 'ceramic', 'stone', 'mosaic', 'wood'] as const;
 export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
   const { user } = useAuthStore();
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [originalUri, setOriginalUri] = useState<string | null>(null);
   const [tileName, setTileName] = useState('');
   const [category, setCategory] = useState('marble');
   const [roomType, setRoomType] = useState('bathroom');
@@ -27,27 +33,120 @@ export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
   const [price, setPrice] = useState('0');
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
+  const [showEditPanel, setShowEditPanel] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [rotation, setRotation] = useState(0);
 
-  async function pickImage() {
+  // ── Image picking ──────────────────────────────────────────
+
+  async function pickFromGallery() {
     try {
       const IP = require('expo-image-picker');
       const { status } = await IP.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow photo library access.');
+        showAlert('Permission Needed', 'Allow photo library access to select tile images.');
         return;
       }
       const res = await IP.launchImageLibraryAsync({
         mediaTypes: IP.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.85,
+        allowsEditing: false, // We handle editing ourselves
+        quality: 0.9,
       });
       if (!res.canceled && res.assets[0]) {
+        setOriginalUri(res.assets[0].uri);
         setImageUri(res.assets[0].uri);
+        setShowEditPanel(true);
+        setRotation(0);
       }
     } catch (e) {
-      Alert.alert('Not available', 'Image picker is not available on this platform.');
+      showAlert('Not Available', 'Image picker is not available on this platform.');
     }
   }
+
+  async function takePhoto() {
+    try {
+      const IP = require('expo-image-picker');
+      const { status } = await IP.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission Needed', 'Allow camera access to take tile photos.');
+        return;
+      }
+      const res = await IP.launchCameraAsync({
+        mediaTypes: IP.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (!res.canceled && res.assets[0]) {
+        setOriginalUri(res.assets[0].uri);
+        setImageUri(res.assets[0].uri);
+        setShowEditPanel(true);
+        setRotation(0);
+      }
+    } catch (e) {
+      showAlert('Not Available', 'Camera is not available on this platform.');
+    }
+  }
+
+  // ── Image editing ──────────────────────────────────────────
+
+  async function handleRotate() {
+    if (!originalUri) return;
+    setEditing(true);
+    try {
+      const IM = require('expo-image-manipulator');
+      const newRotation = (rotation + 90) % 360;
+      const result = await IM.manipulateAsync(
+        originalUri,
+        [{ rotate: newRotation }],
+        { compress: 0.9, format: IM.SaveFormat.JPEG }
+      );
+      setImageUri(result.uri);
+      setRotation(newRotation);
+    } catch (e) {
+      console.warn('Rotate failed:', e);
+    } finally {
+      setEditing(false);
+    }
+  }
+
+  async function handleCropSquare() {
+    if (!imageUri) return;
+    setEditing(true);
+    try {
+      const IM = require('expo-image-manipulator');
+      // Get image dimensions to crop to center square
+      const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
+        Image.getSize(imageUri, (w, h) => resolve({ width: w, height: h }), () => resolve({ width: 500, height: 500 }));
+      });
+      const size = Math.min(width, height);
+      const originX = Math.floor((width - size) / 2);
+      const originY = Math.floor((height - size) / 2);
+
+      const result = await IM.manipulateAsync(
+        imageUri,
+        [{ crop: { originX, originY, width: size, height: size } }],
+        { compress: 0.9, format: IM.SaveFormat.JPEG }
+      );
+      setImageUri(result.uri);
+      setOriginalUri(result.uri); // Update original to cropped version
+    } catch (e) {
+      console.warn('Crop failed:', e);
+    } finally {
+      setEditing(false);
+    }
+  }
+
+  async function handleResetImage() {
+    if (!originalUri) return;
+    setImageUri(originalUri);
+    setRotation(0);
+  }
+
+  function confirmImage() {
+    setShowEditPanel(false);
+  }
+
+  // ── Validation & Submit ────────────────────────────────────
 
   function validate(): string | null {
     if (!tileName.trim()) return 'Tile name is required';
@@ -98,7 +197,7 @@ export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
       const msg = user?.role === 'sales_person'
         ? 'Tile submitted for approval.'
         : 'Tile uploaded to catalog.';
-      Alert.alert('Success', msg);
+      showAlert('✅ Success', msg);
       onUploaded?.();
       handleClose();
     } catch (e: any) {
@@ -109,8 +208,9 @@ export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
   }
 
   function handleClose() {
-    setImageUri(null); setTileName(''); setCategory('marble'); setRoomType('bathroom');
+    setImageUri(null); setOriginalUri(null); setTileName(''); setCategory('marble'); setRoomType('bathroom');
     setSizeW('12'); setSizeH('12'); setMfr(''); setPrice('0'); setErr('');
+    setShowEditPanel(false); setRotation(0);
     onClose();
   }
 
@@ -135,29 +235,90 @@ export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
               </View>
             )}
 
-            {/* Image picker — shows real preview after selection */}
-            <TouchableOpacity
-              style={[s.uploadZone, imageUri ? s.uploadZoneWithImg : null]}
-              onPress={pickImage}
-              activeOpacity={0.8}
-            >
-              {imageUri ? (
+            {/* ── Image Section ── */}
+            {!imageUri || showEditPanel ? (
+              <>
+                {/* Image picker — two options: Camera + Gallery */}
+                {!imageUri ? (
+                  <View style={s.uploadZone}>
+                    <Text style={{ fontSize: 32, marginBottom: 8 }}>📷</Text>
+                    <Text style={{ fontSize: 13, color: Colors.text2, marginBottom: 12, textAlign: 'center' }}>
+                      Choose how to add your tile photo
+                    </Text>
+                    <View style={s.pickerButtons}>
+                      <TouchableOpacity style={s.pickerBtn} onPress={takePhoto} activeOpacity={0.7}>
+                        <Text style={s.pickerBtnIcon}>📸</Text>
+                        <Text style={s.pickerBtnLabel}>Camera</Text>
+                        <Text style={s.pickerBtnHint}>Take a photo</Text>
+                      </TouchableOpacity>
+                      <View style={s.pickerDivider} />
+                      <TouchableOpacity style={s.pickerBtn} onPress={pickFromGallery} activeOpacity={0.7}>
+                        <Text style={s.pickerBtnIcon}>🖼️</Text>
+                        <Text style={s.pickerBtnLabel}>Gallery</Text>
+                        <Text style={s.pickerBtnHint}>Choose existing</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ fontSize: 11, color: Colors.text3, marginTop: 8 }}>JPG / PNG · Max 5 MB</Text>
+                  </View>
+                ) : (
+                  /* ── Image Edit Panel ── */
+                  <View style={s.editPanel}>
+                    <View style={s.editPreviewWrap}>
+                      <Image source={{ uri: imageUri }} style={s.editPreviewImg} resizeMode="contain" />
+                      {editing && (
+                        <View style={s.editingOverlay}>
+                          <ActivityIndicator color="#fff" size="small" />
+                          <Text style={{ color: '#fff', fontSize: 11, marginTop: 4 }}>Processing...</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Edit controls */}
+                    <View style={s.editControls}>
+                      <TouchableOpacity style={s.editBtn} onPress={handleRotate} disabled={editing}>
+                        <Text style={s.editBtnIcon}>🔄</Text>
+                        <Text style={s.editBtnLabel}>Rotate 90°</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={s.editBtn} onPress={handleCropSquare} disabled={editing}>
+                        <Text style={s.editBtnIcon}>⬜</Text>
+                        <Text style={s.editBtnLabel}>Crop Square</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={s.editBtn} onPress={handleResetImage} disabled={editing}>
+                        <Text style={s.editBtnIcon}>↩️</Text>
+                        <Text style={s.editBtnLabel}>Reset</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Confirm / Retake */}
+                    <View style={s.editActions}>
+                      <TouchableOpacity
+                        style={s.retakeBtn}
+                        onPress={() => { setImageUri(null); setOriginalUri(null); setShowEditPanel(false); }}
+                      >
+                        <Text style={s.retakeBtnTx}>📷 Retake</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={s.confirmBtn} onPress={confirmImage} disabled={editing}>
+                        <Text style={s.confirmBtnTx}>✓ Use This Image</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </>
+            ) : (
+              /* ── Confirmed image preview ── */
+              <TouchableOpacity
+                style={[s.uploadZone, s.uploadZoneWithImg]}
+                onPress={() => setShowEditPanel(true)}
+                activeOpacity={0.8}
+              >
                 <View style={s.previewWrap}>
                   <Image source={{ uri: imageUri }} style={s.previewImg} resizeMode="cover" />
                   <View style={s.previewOverlay}>
-                    <Text style={s.previewChangeTxt}>📷  Tap to change image</Text>
+                    <Text style={s.previewChangeTxt}>✏️  Tap to edit image</Text>
                   </View>
                 </View>
-              ) : (
-                <>
-                  <Text style={{ fontSize: 32, marginBottom: 4 }}>📷</Text>
-                  <Text style={{ fontSize: 13, color: Colors.text3, marginBottom: 2 }}>
-                    Tap to choose tile photo (JPG / PNG)
-                  </Text>
-                  <Text style={{ fontSize: 11, color: Colors.text3 }}>Max 5 MB</Text>
-                </>
-              )}
-            </TouchableOpacity>
+              </TouchableOpacity>
+            )}
 
             <FormInput
               label="Tile Name *"
@@ -253,6 +414,98 @@ const s = StyleSheet.create({
     marginBottom: 14, backgroundColor: Colors.surface, overflow: 'hidden',
   },
   uploadZoneWithImg: { padding: 0, borderStyle: 'solid' },
+  // Picker buttons (Camera / Gallery)
+  pickerButtons: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    width: '100%',
+    borderRadius: Radii.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  pickerBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+  },
+  pickerBtnIcon: { fontSize: 24, marginBottom: 4 },
+  pickerBtnLabel: { fontSize: 13, fontWeight: '600', color: Colors.text1 },
+  pickerBtnHint: { fontSize: 10, color: Colors.text3, marginTop: 2 },
+  pickerDivider: {
+    width: 1,
+    backgroundColor: Colors.border,
+  },
+  // Edit panel
+  editPanel: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.lg,
+    overflow: 'hidden',
+    marginBottom: 14,
+    backgroundColor: Colors.surface,
+  },
+  editPreviewWrap: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#1a1a2e',
+    position: 'relative',
+  },
+  editPreviewImg: {
+    width: '100%',
+    height: '100%',
+  },
+  editingOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  editBtn: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  editBtnIcon: { fontSize: 16, marginBottom: 2 },
+  editBtnLabel: { fontSize: 10, fontWeight: '600', color: Colors.text2 },
+  editActions: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 10,
+  },
+  retakeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  retakeBtnTx: { fontSize: 12, fontWeight: '600', color: Colors.text2 },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: Radii.md,
+    backgroundColor: Colors.gold,
+  },
+  confirmBtnTx: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  // Preview (after confirming edit)
   previewWrap: { width: '100%', height: 150, position: 'relative' },
   previewImg: { width: '100%', height: '100%' },
   previewOverlay: {

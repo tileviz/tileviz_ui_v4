@@ -1,9 +1,10 @@
 // CatalogScreen — split layout: tile grid (left) + sliding sidebar (right)
-// NO modals/popups. All interaction via sidebar + catalog grid.
+// Mobile: Zone Arena shown as bottom-sheet modal; auto-closes on row tap
 import React, { useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
   StyleSheet, RefreshControl, ScrollView, Image,
+  Modal, Pressable, Platform,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
@@ -14,6 +15,7 @@ import { CatalogSidebar } from '../components/CatalogSidebar';
 import { useCatalogStore } from '../store/catalog.store';
 import { useAuthStore } from '../store/auth.store';
 import { useAppStore } from '../store/app.store';
+import { useLayout } from '../hooks/useLayout';
 import { getTiles, deleteTile } from '../api/tiles';
 import { CAT_TABS, ROOM_SIZE_FILTERS } from '../config';
 import { Tile } from '../types';
@@ -23,6 +25,7 @@ const H_PAD = 12;
 
 export function CatalogScreen() {
   const { user } = useAuthStore();
+  const { isPhone } = useLayout();
   const {
     tiles, setTiles, search, setSearch,
     activeTab, setActiveTab, activeSize, setActiveSize,
@@ -67,31 +70,48 @@ export function CatalogScreen() {
 
   // ── Tile click: assign to focused zone row OR just select ──
   function handleTilePress(tile: Tile) {
-    // Only allow tile selection if sidebar (Zone Arena) is open
-    if (!sidebarOpen) {
-      showAlert('Zone Arena Required', 'Please open Zone Arena first to configure your room and assign tiles.');
-      return;
-    }
-
     if (assigningKey) {
       // Assign tile to the focused zone row
       const [wallKey, ri] = assigningKey.split(':');
       const rowIndex = parseInt(ri);
+      const rowLabel = wallKey === 'floor' ? 'Floor Tile' : `Wall Row ${rowIndex + 1}`;
       const newRow = {
         rowIndex, wallKey,
         tileId: tile.id, tileName: tile.name,
         color: tile.color, tileImageUri: tile.imageUri,
+        tileWidthIn: tile.widthIn, tileHeightIn: tile.heightIn,
       };
       setZoneRows(
         zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
           ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? newRow : r)
           : [...zoneRows, newRow]
       );
-      // Auto-advance to next unassigned row
+      // Update global tile size to match this tile's actual size
+      const { setTileSize } = useAppStore.getState();
+      setTileSize(`${tile.widthIn}x${tile.heightIn}`);
+
+      // Show confirmation toast
+      showAlert('✅ Tile Assigned', `"${tile.name}" → ${rowLabel}`);
+      // Clear assigning mode
       setAssigningKey(null);
-    } else {
-      setSelectedTile(tile);
+
+      // On mobile, auto-reopen Zone Arena so user can pick next row
+      if (isPhone) {
+        setTimeout(() => {
+          setSidebarOpen(true);
+        }, 600);
+      }
+      return;
     }
+
+    // If sidebar isn't open, show a toast guiding the user
+    if (!sidebarOpen) {
+      setSelectedTile(tile);
+      showAlert('Tile Selected', `"${tile.name}" selected. Open Zone Arena to assign it to a row.`);
+      return;
+    }
+
+    setSelectedTile(tile);
   }
 
   async function handleDelete(tile: Tile) {
@@ -123,6 +143,127 @@ export function CatalogScreen() {
     return wallKey === 'floor' ? 'Floor Tile' : `Wall Row ${parseInt(ri) + 1}`;
   }, [assigningKey]);
 
+  // ── Render the catalog grid ──
+  function renderCatalogGrid() {
+    return (
+      <View style={{ flex: 1 }}>
+        {/* Search Bar */}
+        <View style={s.toolbar}>
+          <View style={s.searchBox}>
+            <Text style={{ fontSize: 14, opacity: 0.4 }}>🔍</Text>
+            <TextInput
+              style={s.searchInput}
+              placeholder="Search tiles…"
+              placeholderTextColor={Colors.text3}
+              value={search}
+              onChangeText={setSearch}
+            />
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={{ fontSize: 13, color: Colors.text3, fontWeight: '600' }}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Room Category Chips */}
+        <View style={s.chipBar}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={CAT_TABS}
+            keyExtractor={i => i.key}
+            contentContainerStyle={{ paddingHorizontal: H_PAD, gap: 6 }}
+            renderItem={({ item: tab }) => {
+              const active = activeTab === tab.key;
+              return (
+                <TouchableOpacity
+                  onPress={() => setActiveTab(tab.key)}
+                  style={[s.chip, active && s.chipActive]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 12 }}>{tab.icon}</Text>
+                  <Text style={[s.chipLabel, active && s.chipLabelActive]}>
+                    {tab.label}
+                  </Text>
+                  <View style={[s.chipCount, active && s.chipCountActive]}>
+                    <Text style={[s.chipCountTx, active && s.chipCountTxActive]}>
+                      {countFor(tab.key)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
+
+        {/* Size Sub-Filters */}
+        {sizeFilters.length > 0 && (
+          <View style={s.sizeBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: H_PAD, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setActiveSize('all')}
+                style={[s.sizeFilterChip, activeSize === 'all' && s.sizeFilterChipActive]}
+              >
+                <Text style={[s.sizeFilterTx, activeSize === 'all' && { color: '#fff' }]}>All Sizes</Text>
+              </TouchableOpacity>
+              {sizeFilters.map(sf => (
+                <TouchableOpacity
+                  key={sf.label}
+                  onPress={() => setActiveSize(sf.label)}
+                  style={[s.sizeFilterChip, activeSize === sf.label && s.sizeFilterChipActive]}
+                >
+                  <Text style={[s.sizeFilterTx, activeSize === sf.label && { color: '#fff' }]}>{sf.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Tile Grid */}
+        {loading ? (
+          <TileGridSkeleton count={9} />
+        ) : (
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={s.grid}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => { setRefreshing(true); load(); }}
+                tintColor={Colors.accent}
+              />
+            }
+          >
+            {filtered.length === 0 ? (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>🔍</Text>
+                <Text style={s.emptyTitle}>No tiles found</Text>
+                <Text style={s.emptySub}>
+                  Try changing your search or category filter
+                </Text>
+              </View>
+            ) : (
+              <View style={s.tileWrap}>
+                {filtered.map(item => (
+                  <TileCard
+                    key={item.id}
+                    tile={item}
+                    selected={selectedTile?.id === item.id}
+                    onPress={handleTilePress}
+                    onDelete={canDelete ? handleDelete : undefined}
+                    canDelete={canDelete}
+                  />
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.surface }}>
       {/* ─── Page Header ─── */}
@@ -145,134 +286,32 @@ export function CatalogScreen() {
       {assigningKey && (
         <View style={s.assignBanner}>
           <View style={s.assignDot} />
-          <Text style={s.assignText}>🎯 Assigning to: <Text style={{ fontWeight: '700' }}>{assigningLabel}</Text> — click a tile below</Text>
-          <TouchableOpacity onPress={() => setAssigningKey(null)} style={s.assignCancel}>
-            <Text style={{ fontSize: 11, color: '#896e38' }}>Cancel</Text>
-          </TouchableOpacity>
+          <Text style={s.assignText}>
+            🎯 Assigning to: <Text style={{ fontWeight: '700' }}>{assigningLabel}</Text> — click a tile below
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {isPhone && (
+              <TouchableOpacity
+                onPress={() => setSidebarOpen(true)}
+                style={s.assignProgressBtn}
+              >
+                <Text style={{ fontSize: 11, color: '#896e38' }}>View Arena</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => setAssigningKey(null)} style={s.assignCancel}>
+              <Text style={{ fontSize: 11, color: '#896e38' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
       {/* ─── Main Content: Grid + Sidebar ─── */}
       <View style={{ flex: 1, flexDirection: 'row' }}>
         {/* ── Left: Catalog Grid ── */}
-        <View style={{ flex: 1 }}>
-          {/* Search Bar */}
-          <View style={s.toolbar}>
-            <View style={s.searchBox}>
-              <Text style={{ fontSize: 14, opacity: 0.4 }}>🔍</Text>
-              <TextInput
-                style={s.searchInput}
-                placeholder="Search tiles…"
-                placeholderTextColor={Colors.text3}
-                value={search}
-                onChangeText={setSearch}
-              />
-              {search.length > 0 && (
-                <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Text style={{ fontSize: 13, color: Colors.text3, fontWeight: '600' }}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+        {renderCatalogGrid()}
 
-          {/* Room Category Chips */}
-          <View style={s.chipBar}>
-            <FlatList
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              data={CAT_TABS}
-              keyExtractor={i => i.key}
-              contentContainerStyle={{ paddingHorizontal: H_PAD, gap: 6 }}
-              renderItem={({ item: tab }) => {
-                const active = activeTab === tab.key;
-                return (
-                  <TouchableOpacity
-                    onPress={() => setActiveTab(tab.key)}
-                    style={[s.chip, active && s.chipActive]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ fontSize: 12 }}>{tab.icon}</Text>
-                    <Text style={[s.chipLabel, active && s.chipLabelActive]}>
-                      {tab.label}
-                    </Text>
-                    <View style={[s.chipCount, active && s.chipCountActive]}>
-                      <Text style={[s.chipCountTx, active && s.chipCountTxActive]}>
-                        {countFor(tab.key)}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          </View>
-
-          {/* Size Sub-Filters */}
-          {sizeFilters.length > 0 && (
-            <View style={s.sizeBar}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: H_PAD, gap: 6 }}>
-                <TouchableOpacity
-                  onPress={() => setActiveSize('all')}
-                  style={[s.sizeFilterChip, activeSize === 'all' && s.sizeFilterChipActive]}
-                >
-                  <Text style={[s.sizeFilterTx, activeSize === 'all' && { color: '#fff' }]}>All Sizes</Text>
-                </TouchableOpacity>
-                {sizeFilters.map(sf => (
-                  <TouchableOpacity
-                    key={sf.label}
-                    onPress={() => setActiveSize(sf.label)}
-                    style={[s.sizeFilterChip, activeSize === sf.label && s.sizeFilterChipActive]}
-                  >
-                    <Text style={[s.sizeFilterTx, activeSize === sf.label && { color: '#fff' }]}>{sf.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Tile Grid */}
-          {loading ? (
-            <TileGridSkeleton count={9} />
-          ) : (
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={s.grid}
-              showsVerticalScrollIndicator={false}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={() => { setRefreshing(true); load(); }}
-                  tintColor={Colors.accent}
-                />
-              }
-            >
-              {filtered.length === 0 ? (
-                <View style={s.empty}>
-                  <Text style={s.emptyIcon}>🔍</Text>
-                  <Text style={s.emptyTitle}>No tiles found</Text>
-                  <Text style={s.emptySub}>
-                    Try changing your search or category filter
-                  </Text>
-                </View>
-              ) : (
-                <View style={s.tileWrap}>
-                  {filtered.map(item => (
-                    <TileCard
-                      key={item.id}
-                      tile={item}
-                      selected={selectedTile?.id === item.id}
-                      onPress={handleTilePress}
-                      onDelete={canDelete ? handleDelete : undefined}
-                      canDelete={canDelete}
-                    />
-                  ))}
-                </View>
-              )}
-            </ScrollView>
-          )}
-        </View>
-
-        {/* ── Right: Sidebar ── */}
-        {sidebarOpen && (
+        {/* ── Right: Sidebar (desktop/tablet only) ── */}
+        {!isPhone && sidebarOpen && (
           <CatalogSidebar
             onGenerate3D={() => {
               setSidebarOpen(false);
@@ -282,6 +321,35 @@ export function CatalogScreen() {
           />
         )}
       </View>
+
+      {/* ─── Mobile: Zone Arena as Bottom Sheet Modal ─── */}
+      {isPhone && (
+        <Modal
+          visible={sidebarOpen}
+          transparent
+          animationType="slide"
+          onRequestClose={() => { setSidebarOpen(false); setAssigningKey(null); }}
+        >
+          <Pressable
+            style={s.mobileSheetBackdrop}
+            onPress={() => { setSidebarOpen(false); }}
+          >
+            <Pressable style={s.mobileSheetPanel} onPress={() => {}}>
+              {/* Handle bar */}
+              <View style={s.mobileSheetHandleBar}>
+                <View style={s.mobileSheetHandle} />
+              </View>
+              <CatalogSidebar
+                onGenerate3D={() => {
+                  setSidebarOpen(false);
+                  setAssigningKey(null);
+                  setActivePage('visualizer');
+                }}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
 
       {/* ─── Floating Action Button ─── */}
       {!sidebarOpen && (
@@ -328,6 +396,11 @@ const s = StyleSheet.create({
   assignCancel: {
     borderWidth: 1, borderColor: 'rgba(200,169,110,0.4)', borderRadius: 6,
     paddingHorizontal: 10, paddingVertical: 3,
+  },
+  assignProgressBtn: {
+    borderWidth: 1, borderColor: 'rgba(200,169,110,0.4)', borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 3,
+    backgroundColor: 'rgba(200,169,110,0.1)',
   },
   // Search
   toolbar: { backgroundColor: Colors.white, paddingHorizontal: H_PAD, paddingVertical: 8 },
@@ -388,4 +461,38 @@ const s = StyleSheet.create({
   },
   fabIcon: { fontSize: 16 },
   fabLabel: { fontSize: 13, fontWeight: '700', color: '#fff', letterSpacing: 0.3 },
+  // ── Mobile bottom sheet ──
+  mobileSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  mobileSheetPanel: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '80%',
+    maxHeight: '85%',
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 -4px 24px rgba(0,0,0,0.15)' } as any
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 24,
+          elevation: 20,
+        }),
+  },
+  mobileSheetHandleBar: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  mobileSheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+  },
 });

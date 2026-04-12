@@ -11,10 +11,11 @@ import {
 import { Colors, Radii, Shadows } from '../config/theme';
 import { saveRoom } from '../api/rooms';
 import { showAlert } from '../utils/alert';
+import { RoomType } from '../types';
 
 interface SaveDesignPayload {
   name: string;
-  roomType: string;
+  roomType: RoomType;
   dimensions: { length: number; width: number; height: number };
   tileSize: { width: number; height: number };
   zoneRows?: any[];
@@ -67,14 +68,12 @@ export function SaveDesignModal({ visible, onClose, onSuccess, designData, defau
       setSaving(false);
       onClose();
 
-      // Then show success alert
+      // Show non-intrusive toast and trigger navigation
       showAlert(
         '✅ Success!',
-        `"${finalName}" has been saved to your designs.`,
-        () => {
-          onSuccess();
-        }
+        `"${finalName}" has been saved to your designs.`
       );
+      onSuccess();
     } catch (error: any) {
       console.error('Save design error:', error);
       setSaving(false);

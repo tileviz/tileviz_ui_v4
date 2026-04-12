@@ -8,6 +8,7 @@ import { View, Text, StatusBar, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
+import { toastConfig } from './src/components/toastConfig';
 import { AppNavigator } from './src/navigation/AppNavigator';
 
 // ── Error Boundary — shows error instead of blank white screen ──
@@ -45,7 +46,7 @@ export default function App() {
             <StatusBar barStyle="light-content" backgroundColor="#0b0f1e" />
           )}
           <AppNavigator />
-          <Toast />
+          <Toast config={toastConfig} topOffset={50} visibilityTime={3000} />
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

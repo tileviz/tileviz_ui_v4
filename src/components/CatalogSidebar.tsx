@@ -36,9 +36,7 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
     roomType, setRoomType, dimensions, setDimensions,
     selectedTileSize, setTileSize, zoneRows, setZoneRows, wallColor, setActivePage,
   } = useAppStore();
-  const { assigningKey, setAssigningKey, setSidebarOpen } = useCatalogStore();
-
-  const [step, setStep] = useState<1 | 2>(1);
+  const { assigningKey, setAssigningKey, setSidebarOpen, zoneStep: step, setZoneStep: setStep } = useCatalogStore();
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -58,6 +56,8 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
     setZoneRows([]);
     setAssigningKey(null);
     setStep(2);
+    // On mobile, ensure sidebar is open after room selection
+    if (isPhone) setSidebarOpen(true);
   }
 
   function handleBack() {
@@ -145,7 +145,7 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
             {step === 1 ? 'Select room type' : `${roomType.charAt(0).toUpperCase() + roomType.slice(1)} · ${assignedTotal}/${totalRows} assigned`}
           </Text>
         </View>
-        <TouchableOpacity onPress={() => { setSidebarOpen(false); setAssigningKey(null); }} style={st.closeBtn}>
+        <TouchableOpacity onPress={() => { setSidebarOpen(false); setAssigningKey(null); setStep(1); }} style={st.closeBtn}>
           <Text style={{ fontSize: 14, color: Colors.text3 }}>✕</Text>
         </TouchableOpacity>
       </View>

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "TileVIZ",
-    "slug": "tileviz_ui_v4",
+    "slug": "tilevizv0",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/app-icon-1024.png",
@@ -45,7 +45,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "7d3bfd51-c3dd-47ee-a381-4effd6a4bd55"
+        "projectId": "524d6327-6b3c-4b1c-a719-ac15d3a9e838"
       }
     }
   }

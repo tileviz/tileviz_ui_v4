@@ -9,6 +9,7 @@ import { Button } from '../components/Button';
 import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
 import { getRooms, deleteRoom } from '../api/rooms';
+import { getTiles } from '../api/tiles';
 import { SavedDesign } from '../types';
 import { ROOM_EMOJIS, ROOM_BG, formatDate } from '../utils/format';
 import { showConfirm, showAlert } from '../utils/alert';
@@ -18,7 +19,7 @@ import { SearchBar } from '../components/SearchBar';
 export function SavedDesignsScreen() {
   const { width } = useWindowDimensions();
   const { loadDesign } = useAppStore();
-  const { setSelectedTile, tiles } = useCatalogStore();
+  const { setSelectedTile, tiles, setTiles } = useCatalogStore();
   const [designs, setDesigns] = useState<SavedDesign[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -37,7 +38,11 @@ export function SavedDesignsScreen() {
 
   const load = useCallback(async () => {
     try {
-      setDesigns(await getRooms());
+      const [designsData] = await Promise.all([
+        getRooms(),
+        tiles.length === 0 ? getTiles().then(t => setTiles(t)) : Promise.resolve(),
+      ]);
+      setDesigns(designsData);
     } catch (e: any) {
       console.error('rooms:', e?.message);
       showAlert('Error', 'Failed to load saved designs. Please try again.');
@@ -45,22 +50,19 @@ export function SavedDesignsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [tiles.length, setTiles]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Optimized filtering with Trie search
   const filteredDesigns = useMemo(() => {
     let items = designs;
 
-    // Apply search using Trie
     if (searchQuery.trim()) {
       items = searchTrie.search(searchQuery);
     }
 
-    // Room type filter
     if (roomFilter !== 'all') {
       items = items.filter(i => i.roomType === roomFilter);
     }
@@ -69,8 +71,24 @@ export function SavedDesignsScreen() {
   }, [designs, searchQuery, roomFilter, searchTrie]);
 
   function handleLoad(d: SavedDesign) {
-    loadDesign(d, setSelectedTile, tiles);
-    showAlert('Design Loaded', `"${d.name}" loaded into Visualizer with all saved features.`);
+    if (tiles.length === 0) {
+      showAlert('Loading...', 'Preparing tiles data...');
+      getTiles().then(t => {
+        setTiles(t);
+        loadDesign(d, setSelectedTile, t, () => {
+          showAlert('Design Loaded', `"${d.name}" loaded into Visualizer with all saved features.`);
+        });
+      }).catch(e => {
+        console.error('Failed to load tiles:', e);
+        loadDesign(d, setSelectedTile, [], () => {
+          showAlert('Design Loaded', `"${d.name}" loaded into Visualizer (some tiles may be placeholders).`);
+        });
+      });
+    } else {
+      loadDesign(d, setSelectedTile, tiles, () => {
+        showAlert('Design Loaded', `"${d.name}" loaded into Visualizer with all saved features.`);
+      });
+    }
   }
 
   function handleDelete(id: string, name: string) {

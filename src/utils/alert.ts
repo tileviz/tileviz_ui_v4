@@ -4,8 +4,28 @@
 //  Confirmations → native Alert (requires user decision)
 // ============================================================
 
-import { Alert, Platform } from 'react-native';
+import { Alert, Platform } from 'react-native'; // Alert/Platform still used by showAlertWithButtons
 import Toast from 'react-native-toast-message';
+
+// Simple event emitter for global confirm modal
+type ConfirmEvent = {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel?: () => void;
+};
+type ConfirmListener = (e: ConfirmEvent) => void;
+const confirmListeners: ConfirmListener[] = [];
+export function onShowConfirm(listener: ConfirmListener) {
+  confirmListeners.push(listener);
+  return () => {
+    const idx = confirmListeners.indexOf(listener);
+    if (idx !== -1) confirmListeners.splice(idx, 1);
+  };
+}
+function emitShowConfirm(e: ConfirmEvent) {
+  confirmListeners.forEach(fn => fn(e));
+}
 
 /**
  * Show a non-intrusive toast notification (replaces blocking Alert.alert)
@@ -61,34 +81,7 @@ export function showConfirm(
   onConfirm: () => void,
   onCancel?: () => void
 ): void {
-  if (Platform.OS === 'web') {
-    // Web: Use window.confirm
-    const confirmed = window.confirm(`${title}\n\n${message}`);
-    if (confirmed) {
-      onConfirm();
-    } else if (onCancel) {
-      onCancel();
-    }
-  } else {
-    // Native: Use React Native Alert
-    Alert.alert(
-      title,
-      message,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: onCancel,
-        },
-        {
-          text: 'OK',
-          style: 'destructive',
-          onPress: onConfirm,
-        },
-      ],
-      { cancelable: true }
-    );
-  }
+  emitShowConfirm({ title, message, onConfirm, onCancel });
 }
 
 /**

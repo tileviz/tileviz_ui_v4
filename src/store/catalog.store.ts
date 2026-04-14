@@ -22,6 +22,9 @@ interface CatalogState {
   sidebarOpen:    boolean;
   setSidebarOpen: (v: boolean) => void;
   toggleSidebar:  () => void;
+  // Zone Arena step — persisted in store so it survives mobile modal close/reopen
+  zoneStep:       1 | 2;
+  setZoneStep:    (step: 1 | 2) => void;
   // Zone assignment mode
   assigningKey:   string | null;   // e.g. "wall:2", "floor:0"
   setAssigningKey:(k: string | null) => void;
@@ -43,6 +46,8 @@ export const useCatalogStore = create<CatalogState>((set) => ({
   sidebarOpen:    false,
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   toggleSidebar:  ()            => set(s => ({ sidebarOpen: !s.sidebarOpen })),
+  zoneStep:       1,
+  setZoneStep:    (zoneStep)    => set({ zoneStep }),
   assigningKey:   null,
   setAssigningKey:(assigningKey)=> set({ assigningKey }),
 }));

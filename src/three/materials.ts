@@ -1,7 +1,19 @@
 // three/materials.ts — PBR procedural texture system
 import * as THREE from 'three';
+import { Platform } from 'react-native';
 const texCache: Record<string, THREE.DataTexture> = {};
 const imgTexCache: Record<string, THREE.Texture>  = {};
+
+/**
+ * Call this whenever the expo-gl context is recreated (NativeCanvas remount).
+ * Stale textures from the old context will crash or render blank in the new one.
+ */
+export function clearTextureCache(): void {
+  Object.keys(imgTexCache).forEach(k => {
+    try { imgTexCache[k].dispose(); } catch { /* ignore */ }
+    delete imgTexCache[k];
+  });
+}
 
 function buildDataTex(color: string, pattern: string): THREE.DataTexture {
   const SIZE=256, buf=new Uint8Array(SIZE*SIZE*4);
@@ -34,14 +46,66 @@ export function makeProceduralMat(color:string,pattern:string,repX:number,repY:n
 
 export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,fbPattern:string):THREE.MeshStandardMaterial{
   const mat=new THREE.MeshStandardMaterial({roughness:0.5,metalness:0});
-  const apply=(t:THREE.Texture)=>{const c=t.clone() as any;c.wrapS=c.wrapT=THREE.RepeatWrapping;c.repeat.set(Math.max(0.5,repX),Math.max(0.5,repY));c.needsUpdate=true;mat.map=c;mat.needsUpdate=true;};
-  if(imgTexCache[uri])apply(imgTexCache[uri]);
-  else{const loader=new THREE.TextureLoader();loader.crossOrigin='anonymous';loader.load(uri,(t)=>{imgTexCache[uri]=t;apply(t)},undefined,()=>{mat.map=(makeProceduralMat(fbColor,fbPattern,repX,repY) as any).map;mat.needsUpdate=true;});}
+
+  /**
+   * Apply a loaded source texture to the material.
+   *
+   * On native: the SOURCE texture is pre-configured with expo-gl-safe settings
+   *   (generateMipmaps=false, minFilter=LinearFilter, flipY=false) before being
+   *   cached. clone() inherits all these settings, so each surface gets its own
+   *   clone with correct repeat values without triggering mipmap incompleteness.
+   *
+   * WHY NOT new THREE.Texture() + v.image = src.image:
+   *   expo-three's TextureLoader stores image data in GL-internal format, not as
+   *   a plain HTMLImageElement. Copying .image to a fresh Texture and setting
+   *   needsUpdate=true does NOT re-upload the data — nothing renders.
+   */
+  const applyTexture=(src:THREE.Texture)=>{
+    const c=src.clone() as any;
+    c.wrapS=c.wrapT=THREE.RepeatWrapping;
+    c.repeat.set(Math.max(0.5,repX),Math.max(0.5,repY));
+    c.needsUpdate=true;
+    mat.map=c;
+    mat.needsUpdate=true;
+  };
+
+  const onError=()=>{
+    mat.map=(makeProceduralMat(fbColor,fbPattern,repX,repY) as any).map;
+    mat.needsUpdate=true;
+  };
+
+  if(imgTexCache[uri]){
+    applyTexture(imgTexCache[uri]);
+  }else if(Platform.OS!=='web'){
+    // Use expo-three's TextureLoader which handles React Native image URIs.
+    // THREE.TextureLoader relies on browser Image API (unavailable in expo-gl).
+    try{
+      const {TextureLoader:ExpoTL}=require('expo-three');
+      new ExpoTL().load(uri,(t:THREE.Texture)=>{
+        // Configure BEFORE caching — clone() inherits these expo-gl-safe settings,
+        // preventing mipmap incompleteness (black surfaces) on non-power-of-2 images.
+        t.generateMipmaps=false;         // non-POT safe: skip mipmap generation
+        t.minFilter=THREE.LinearFilter;  // no mipmaps → LinearFilter required
+        t.flipY=false;                   // expo-gl: OpenGL ES bottom-left origin
+        t.needsUpdate=true;
+        imgTexCache[uri]=t;
+        applyTexture(t);
+      },undefined,onError);
+    }catch{
+      onError();
+    }
+  }else{
+    const loader=new THREE.TextureLoader();
+    loader.crossOrigin='anonymous';
+    loader.load(uri,(t)=>{imgTexCache[uri]=t;applyTexture(t);},undefined,onError);
+  }
   return mat;
 }
 
 export function resolveRowMat(row:any,tile:any,repX:number,repY:number):THREE.MeshStandardMaterial{
-  const color=row?.color??tile?.color??'#c8b89a',pattern=tile?.pattern??row?.pattern??'solid',uri=row?.tileImageUri??tile?.imageUri;
+  const color=row?.color??tile?.color??'#c8b89a';
+  const pattern=tile?.pattern??row?.pattern??'solid';
+  const uri=row?.tileImageUri??tile?.imageUri;
   if(uri)return makeImageMat(uri,repX,repY,color,pattern);
   return makeProceduralMat(color,pattern,repX,repY);
 }

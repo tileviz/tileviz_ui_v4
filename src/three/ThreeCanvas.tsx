@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { Colors, Radii } from '../config/theme';
 import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScene, setupInteriorCamera, setInteriorLighting, setExteriorLighting } from './scene';
 import { buildRoom } from './room-builder';
+import { clearTextureCache } from './materials';
 import { RoomType, Tile, ZoneRow } from '../types';
 
 const styles = StyleSheet.create({
@@ -503,6 +504,11 @@ function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
 
   // ── GL context creation (runs once) ─────────────────────────
   const onContextCreate = useCallback(async (gl: any) => {
+    // Clear texture cache from any previous GL context.
+    // Textures are tied to a specific WebGL context — reusing them after
+    // NativeCanvas remounts (navigation away and back) causes blank surfaces.
+    clearTextureCache();
+
     const w = gl.drawingBufferWidth;
     const h = gl.drawingBufferHeight;
     const bundle = createScene(gl, w, h);

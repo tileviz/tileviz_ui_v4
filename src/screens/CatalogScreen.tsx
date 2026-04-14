@@ -33,6 +33,7 @@ export function CatalogScreen() {
     loading, setLoading,
     sidebarOpen, setSidebarOpen, toggleSidebar,
     assigningKey, setAssigningKey,
+    setZoneStep,
   } = useCatalogStore();
   const { zoneRows, setZoneRows, setActivePage } = useAppStore();
   const [uploadOpen, setUploadOpen] = React.useState(false);
@@ -316,6 +317,7 @@ export function CatalogScreen() {
             onGenerate3D={() => {
               setSidebarOpen(false);
               setAssigningKey(null);
+              setZoneStep(1);
               setActivePage('visualizer');
             }}
           />
@@ -328,11 +330,11 @@ export function CatalogScreen() {
           visible={sidebarOpen}
           transparent
           animationType="slide"
-          onRequestClose={() => { setSidebarOpen(false); setAssigningKey(null); }}
+          onRequestClose={() => { setSidebarOpen(false); setAssigningKey(null); setZoneStep(1); }}
         >
           <Pressable
             style={s.mobileSheetBackdrop}
-            onPress={() => { setSidebarOpen(false); }}
+            onPress={() => { setSidebarOpen(false); setZoneStep(1); }}
           >
             <Pressable style={s.mobileSheetPanel} onPress={() => {}}>
               {/* Handle bar */}
@@ -343,6 +345,7 @@ export function CatalogScreen() {
                 onGenerate3D={() => {
                   setSidebarOpen(false);
                   setAssigningKey(null);
+                  setZoneStep(1);
                   setActivePage('visualizer');
                 }}
               />

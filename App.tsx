@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import { toastConfig } from './src/components/toastConfig';
 import { AppNavigator } from './src/navigation/AppNavigator';
+import { GlobalConfirmProvider } from './src/components/GlobalConfirmProvider';
 
 // ── Error Boundary — shows error instead of blank white screen ──
 interface EBState { hasError: boolean; error: string }
@@ -45,7 +46,9 @@ export default function App() {
           {Platform.OS !== 'web' && (
             <StatusBar barStyle="light-content" backgroundColor="#0b0f1e" />
           )}
-          <AppNavigator />
+          <GlobalConfirmProvider>
+            <AppNavigator />
+          </GlobalConfirmProvider>
           <Toast config={toastConfig} topOffset={50} visibilityTime={3000} />
         </SafeAreaProvider>
       </GestureHandlerRootView>

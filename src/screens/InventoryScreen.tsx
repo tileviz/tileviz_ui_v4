@@ -117,9 +117,10 @@ export function InventoryScreen() {
       selectedTileColor: item.selectedTileColor || item.tileColor,
     };
 
-    // Use unified load design method
-    loadDesign(design, setSelectedTile, tiles);
-    showAlert('Design Loaded', `"${item.name}" loaded into Visualizer with all saved features.`);
+    // Use unified load design method with callback
+    loadDesign(design, setSelectedTile, tiles, () => {
+      showAlert('Design Loaded', `"${item.name}" loaded into Visualizer with all saved features.`);
+    });
   }
 
   function handleViewDetails(item: InventoryItem) {

@@ -1,18 +1,32 @@
 // three/materials.ts — PBR procedural texture system
 import * as THREE from 'three';
 import { Platform } from 'react-native';
+
 const texCache: Record<string, THREE.DataTexture> = {};
-const imgTexCache: Record<string, THREE.Texture>  = {};
+
+// Web: cache loaded THREE.Texture objects (GL-context bound)
+const imgTexCache: Record<string, THREE.Texture> = {};
+
+// Native: cache image objects produced by expo-three's TextureLoader.
+// Shape: { data: Asset, width, height } — the exact format expo-gl's texImage2D expects.
+// GL-context independent — safe to keep across NativeCanvas remounts.
+const imgAssetCache: Record<string, any> = {};
+
+// In-flight load promises — ensures only ONE expo-three TextureLoader fires per URI,
+// regardless of how many surfaces (walls + floor) request the same image concurrently.
+const imgLoadingPromises: Record<string, Promise<any>> = {};
 
 /**
  * Call this whenever the expo-gl context is recreated (NativeCanvas remount).
- * Stale textures from the old context will crash or render blank in the new one.
+ * Web THREE.Texture objects are bound to a specific GL context and must be
+ * discarded. Native image objects have no GL binding — they are kept.
  */
 export function clearTextureCache(): void {
   Object.keys(imgTexCache).forEach(k => {
     try { imgTexCache[k].dispose(); } catch { /* ignore */ }
     delete imgTexCache[k];
   });
+  // imgAssetCache intentionally kept — no GL binding, survives context recreation
 }
 
 function buildDataTex(color: string, pattern: string): THREE.DataTexture {
@@ -26,13 +40,9 @@ function buildDataTex(color: string, pattern: string): THREE.DataTexture {
   // Thin dark grout lines (1px) for realistic tile appearance
   const groutR=136,groutG=136,groutB=136; // #888 dark gray grout
   for(let j=0;j<SIZE;j++){
-    // Top edge (1px)
     const t=(0*SIZE+j)*4; buf[t]=groutR;buf[t+1]=groutG;buf[t+2]=groutB;
-    // Bottom edge (1px)
     const b=((SIZE-1)*SIZE+j)*4; buf[b]=groutR;buf[b+1]=groutG;buf[b+2]=groutB;
-    // Left edge (1px)
     const l=(j*SIZE+0)*4; buf[l]=groutR;buf[l+1]=groutG;buf[l+2]=groutB;
-    // Right edge (1px)
     const rr=(j*SIZE+(SIZE-1))*4; buf[rr]=groutR;buf[rr+1]=groutG;buf[rr+2]=groutB;
   }
   const tex=new THREE.DataTexture(buf,SIZE,SIZE,THREE.RGBAFormat);tex.needsUpdate=true;return tex;
@@ -44,60 +54,118 @@ export function makeProceduralMat(color:string,pattern:string,repX:number,repY:n
   return new THREE.MeshStandardMaterial({map:t,roughness:pattern==='marble'?0.22:pattern==='wood'?0.6:0.82,metalness:pattern==='marble'?0.06:0});
 }
 
+/**
+ * Build a fresh THREE.Texture from a pre-downloaded asset, replicating
+ * expo-three's internal format exactly:
+ *   texture.isDataTexture = true
+ *   texture.image = { data: Asset, width, height }
+ *
+ * With isDataTexture=true, Three.js calls the 9-arg texImage2D:
+ *   gl.texImage2D(target, level, internalFormat, width, height, 0, format, type, image.data)
+ * expo-gl's patch handles Asset objects in that position — this is the ONLY
+ * form that works correctly on React Native / expo-gl for downloaded assets.
+ *
+ * WHY NOT clone():
+ *   THREE.Texture.copy() does not copy the non-standard isDataTexture property.
+ *   A cloned texture loses isDataTexture=true, falls into the 6-arg texImage2D
+ *   path which expo-gl cannot decode → renders solid BLACK.
+ */
+function buildNativeTexture(
+  assetData: { data: any; width: number; height: number },
+  repX: number,
+  repY: number,
+): THREE.Texture {
+  const t = new THREE.Texture();
+  (t as any).isDataTexture = true;   // must set BEFORE needsUpdate — determines upload path
+  t.image          = assetData;
+  t.generateMipmaps = false;         // non-POT safe: never generate mipmaps
+  t.minFilter      = THREE.LinearFilter;
+  t.magFilter      = THREE.LinearFilter;
+  t.flipY          = false;          // expo-gl: OpenGL ES bottom-left origin
+  t.wrapS          = THREE.RepeatWrapping;
+  t.wrapT          = THREE.RepeatWrapping;
+  t.repeat.set(Math.max(0.5, repX), Math.max(0.5, repY));
+  t.needsUpdate    = true;
+  return t;
+}
+
+/**
+ * Returns a promise that resolves with the image object produced by expo-three's
+ * TextureLoader for the given URI.  Only ONE TextureLoader fires per URI — all
+ * concurrent callers (e.g. 32 wall-row surfaces) await the same promise so we
+ * never download the same asset more than once per session.
+ */
+function loadNativeImageObj(uri: string): Promise<any> {
+  if (imgAssetCache[uri]) return Promise.resolve(imgAssetCache[uri]);
+
+  if (!imgLoadingPromises[uri]) {
+    imgLoadingPromises[uri] = new Promise<any>((resolve, reject) => {
+      try {
+        const { TextureLoader: ExpoTL } = require('expo-three');
+        new ExpoTL().load(
+          uri,
+          (t: THREE.Texture) => {
+            // t.image is { data: Asset, width, height } — exact format expo-gl expects
+            const imageObj = (t as any).image;
+            imgAssetCache[uri] = imageObj;
+            delete imgLoadingPromises[uri];
+            resolve(imageObj);
+          },
+          undefined,
+          (e: any) => { delete imgLoadingPromises[uri]; reject(e); },
+        );
+      } catch (e) {
+        delete imgLoadingPromises[uri];
+        reject(e);
+      }
+    });
+  }
+
+  return imgLoadingPromises[uri];
+}
+
 export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,fbPattern:string):THREE.MeshStandardMaterial{
   const mat=new THREE.MeshStandardMaterial({roughness:0.5,metalness:0});
 
-  /**
-   * Apply a loaded source texture to the material.
-   *
-   * On native: the SOURCE texture is pre-configured with expo-gl-safe settings
-   *   (generateMipmaps=false, minFilter=LinearFilter, flipY=false) before being
-   *   cached. clone() inherits all these settings, so each surface gets its own
-   *   clone with correct repeat values without triggering mipmap incompleteness.
-   *
-   * WHY NOT new THREE.Texture() + v.image = src.image:
-   *   expo-three's TextureLoader stores image data in GL-internal format, not as
-   *   a plain HTMLImageElement. Copying .image to a fresh Texture and setting
-   *   needsUpdate=true does NOT re-upload the data — nothing renders.
-   */
-  const applyTexture=(src:THREE.Texture)=>{
-    const c=src.clone() as any;
-    c.wrapS=c.wrapT=THREE.RepeatWrapping;
-    c.repeat.set(Math.max(0.5,repX),Math.max(0.5,repY));
-    c.needsUpdate=true;
-    mat.map=c;
-    mat.needsUpdate=true;
-  };
-
-  const onError=()=>{
+  const fallback=()=>{
     mat.map=(makeProceduralMat(fbColor,fbPattern,repX,repY) as any).map;
     mat.needsUpdate=true;
   };
 
-  if(imgTexCache[uri]){
-    applyTexture(imgTexCache[uri]);
-  }else if(Platform.OS!=='web'){
-    // Use expo-three's TextureLoader which handles React Native image URIs.
-    // THREE.TextureLoader relies on browser Image API (unavailable in expo-gl).
-    try{
-      const {TextureLoader:ExpoTL}=require('expo-three');
-      new ExpoTL().load(uri,(t:THREE.Texture)=>{
-        // Configure BEFORE caching — clone() inherits these expo-gl-safe settings,
-        // preventing mipmap incompleteness (black surfaces) on non-power-of-2 images.
-        t.generateMipmaps=false;         // non-POT safe: skip mipmap generation
-        t.minFilter=THREE.LinearFilter;  // no mipmaps → LinearFilter required
-        t.flipY=false;                   // expo-gl: OpenGL ES bottom-left origin
-        t.needsUpdate=true;
-        imgTexCache[uri]=t;
-        applyTexture(t);
-      },undefined,onError);
-    }catch{
-      onError();
+  if(Platform.OS!=='web'){
+    // ── Native path ────────────────────────────────────────────────────────
+    // Cache hit: image object already available → create texture synchronously
+    if(imgAssetCache[uri]){
+      mat.map=buildNativeTexture(imgAssetCache[uri],repX,repY);
+      mat.needsUpdate=true;
+    }else{
+      // Cache miss: deduplicated async load via expo-three TextureLoader.
+      // All concurrent callers (floor + 32 wall rows) share one promise.
+      loadNativeImageObj(uri)
+        .then((imageObj:any)=>{
+          mat.map=buildNativeTexture(imageObj,repX,repY);
+          mat.needsUpdate=true;
+        })
+        .catch(fallback);
     }
   }else{
-    const loader=new THREE.TextureLoader();
-    loader.crossOrigin='anonymous';
-    loader.load(uri,(t)=>{imgTexCache[uri]=t;applyTexture(t);},undefined,onError);
+    // ── Web path: standard THREE.TextureLoader + clone ─────────────────
+    const applyTexture=(src:THREE.Texture)=>{
+      const c=src.clone() as any;
+      c.wrapS=c.wrapT=THREE.RepeatWrapping;
+      c.repeat.set(Math.max(0.5,repX),Math.max(0.5,repY));
+      c.needsUpdate=true;
+      mat.map=c;
+      mat.needsUpdate=true;
+    };
+
+    if(imgTexCache[uri]){
+      applyTexture(imgTexCache[uri]);
+    }else{
+      const loader=new THREE.TextureLoader();
+      loader.crossOrigin='anonymous';
+      loader.load(uri,(t)=>{imgTexCache[uri]=t;applyTexture(t);},undefined,fallback);
+    }
   }
   return mat;
 }

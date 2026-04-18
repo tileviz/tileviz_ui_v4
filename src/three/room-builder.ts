@@ -184,27 +184,67 @@ function bathroom(W:number,L:number,H:number,g:THREE.Group){
 function kitchen(W:number,L:number,H:number,g:THREE.Group){
   const cab=std(0xf4f0e8,0.7),ctr=std(0x5a4a3a,0.4,0.1),stl=std(0xcccccc,0.3,0.7),
     frg=std(0xe8e8e8,0.4,0.2),drk=std(0x333333,0.8),chr=std(0xdddddd,0.1,0.9);
-  const cabH=0.88,cabD=0.6,ctH=0.05,bcW=W-0.1;
+  const cabH=0.88,cabD=0.6,ctH=0.05;
+
+  // ── North wall (back wall): main cooking counter ──────────
+  const nW=W-0.1;
   // Base cabinets
-  mesh(new THREE.BoxGeometry(bcW,cabH,cabD),cab,0,cabH/2,-L/2+cabD/2,g,true);
+  mesh(new THREE.BoxGeometry(nW,cabH,cabD),cab,0,cabH/2,-L/2+cabD/2,g,true);
   // Countertop
-  mesh(new THREE.BoxGeometry(bcW,ctH,cabD+0.04),ctr,0,cabH+ctH/2,-L/2+cabD/2,g);
-  // Sink area
+  mesh(new THREE.BoxGeometry(nW,ctH,cabD+0.04),ctr,0,cabH+ctH/2,-L/2+cabD/2,g);
+  // Sink area (offset left of center)
   mesh(new THREE.BoxGeometry(0.55,ctH+0.08,0.42),stl,-W*0.1,cabH,-L/2+cabD/2,g);
   mesh(new THREE.BoxGeometry(0.42,0.10,0.30),drk,-W*0.1,cabH+0.01,-L/2+cabD/2,g);
   // Faucet
   mesh(new THREE.CylinderGeometry(0.02,0.02,0.14,10),chr,-W*0.1,cabH+ctH+0.07,-L/2+cabD/2-0.1,g);
-  // Stove area (moved burners up onto countertop properly)
+  // Stove area (right side of north wall)
   mesh(new THREE.BoxGeometry(0.65,0.06,0.56),stl,W*0.25,cabH+ctH/2,-L/2+cabD/2,g);
-  // Burners on stove (moved up onto countertop — fixed position)
+  // Burners
   [[-0.12,-0.08],[-0.12,0.12],[0.12,-0.08],[0.12,0.12]].forEach(([bx,bz])=>mesh(new THREE.CylinderGeometry(0.06,0.06,0.03,12),drk,W*0.25+bx,cabH+ctH+0.015,-L/2+cabD/2+bz,g));
-  // Fridge
+
+  // ── North wall: upper cabinets (wall-mounted) ─────────────
+  const ucH=0.5,ucD=0.35,ucY=H*0.55+ucH/2;
+  // Left upper cabinet (above sink)
+  mesh(new THREE.BoxGeometry(nW*0.4,ucH,ucD),cab,-nW*0.2,ucY,-L/2+ucD/2,g,true);
+  // Right upper cabinet (above stove area)
+  mesh(new THREE.BoxGeometry(nW*0.35,ucH,ucD),cab,nW*0.25,ucY,-L/2+ucD/2,g,true);
+
+  // ── West wall (left wall): L-shaped extension ─────────────
+  // Leave space for the fridge in the corner (north-west)
+  const wCabLen=L-cabD-0.8; // length along Z, leaving gap for fridge + some clearance
+  const wCabZ=-L/2+cabD+0.4+wCabLen/2; // offset from north wall + fridge space
+  // Base cabinets
+  mesh(new THREE.BoxGeometry(cabD,cabH,wCabLen),cab,-W/2+cabD/2,cabH/2,wCabZ,g,true);
+  // Countertop
+  mesh(new THREE.BoxGeometry(cabD+0.04,ctH,wCabLen),ctr,-W/2+cabD/2,cabH+ctH/2,wCabZ,g);
+  // Upper cabinets on west wall
+  mesh(new THREE.BoxGeometry(ucD,ucH,wCabLen*0.7),cab,-W/2+ucD/2,ucY,wCabZ,g,true);
+
+  // ── East wall (right wall): cabinets from north wall to just before window ──
+  // Window is centered at Z=0, spans L*0.3 wide, so its north edge is at Z = -(L*0.15)
+  // Cabinets run from north counter edge to window with a small gap
+  const winNorthEdge = -(L * 0.15);
+  const eCabStart = -L/2 + cabD + 0.35;         // start Z (after north counter overlap)
+  const eCabEnd = winNorthEdge - 0.1;            // end Z (gap before window)
+  const eCabLen = eCabEnd - eCabStart;
+  if (eCabLen > 0.3) {
+    const eCabZ = eCabStart + eCabLen / 2;
+    // Base cabinets
+    mesh(new THREE.BoxGeometry(cabD,cabH,eCabLen),cab,W/2-cabD/2,cabH/2,eCabZ,g,true);
+    // Countertop
+    mesh(new THREE.BoxGeometry(cabD+0.04,ctH,eCabLen),ctr,W/2-cabD/2,cabH+ctH/2,eCabZ,g);
+    // Upper cabinets on east wall (shorter, only above the base cabinets)
+    mesh(new THREE.BoxGeometry(ucD,ucH,eCabLen*0.8),cab,W/2-ucD/2,ucY,eCabZ,g,true);
+  }
+
+  // ── Fridge (north-west corner) ────────────────────────────
   const fH=H*0.85;
   mesh(new THREE.BoxGeometry(0.72,fH,0.7),frg,-W/2+0.38,fH/2,-L/2+0.37,g,true);
   mesh(new THREE.BoxGeometry(0.05,0.25,0.04),chr,-W/2+0.73,fH*0.7,-L/2+0.37,g);
-  // ── Indian window on east wall ──
+
+  // ── Window on east wall (above the east counter) ──────────
   addWindow(0,H*0.55,W/2-0.02,L*0.3,H*0.3,g,'z');
-  // ── Door on south wall ──
+  // ── Door on south wall (the only open side) ───────────────
   addDoor(W,H,L,g,L/2-0.02,-W*0.15);
 }
 

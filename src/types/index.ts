@@ -46,6 +46,8 @@ export interface Tile {
 }
 
 // ── Zone Design ───────────────────────────────────────────────
+export type TilePattern = 'plain' | 'alternate' | 'checker' | 'block';
+
 export interface ZoneRow {
   rowIndex:      number;
   wallKey:       string;
@@ -56,6 +58,12 @@ export interface ZoneRow {
   pattern?:      string;
   tileWidthIn?:  number;
   tileHeightIn?: number;
+  // ── Pattern fields (Wall Designer) ──
+  patternType?:       TilePattern;    // how tiles are arranged in this row
+  tileBId?:           string;         // second tile ID (for patterns)
+  tileBName?:         string;
+  tileBImageUri?:     string;
+  tileBColor?:        string;
 }
 
 // ── Saved Design ─────────────────────────────────────────────

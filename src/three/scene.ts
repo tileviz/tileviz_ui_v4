@@ -1,6 +1,7 @@
 // three/scene.ts — Scene, lights, renderer. Dynamic require for expo-three (web safe)
 import * as THREE from 'three';
 import { THREE_FT_SCALE } from '../config';
+import { patchGLForExpoThree } from './materials';
 
 export interface SceneBundle {
   scene:THREE.Scene; camera:THREE.PerspectiveCamera; renderer:any;
@@ -8,6 +9,10 @@ export interface SceneBundle {
 }
 
 export function createScene(gl: any, w: number, h: number): SceneBundle {
+  // Patch the GL context BEFORE the Renderer is created so that Three.js
+  // uses the legacy texImage2D path that expo-gl supports for Asset textures.
+  patchGLForExpoThree(gl);
+
   // Dynamic require — expo-three is native only, top-level import crashes web
   const { Renderer } = require('expo-three');
   

@@ -66,33 +66,43 @@ function FloatingTile({
   );
 }
 
-// ── Animated tile grid ────────────────────────────────────────
-function AnimatedTileGrid() {
+// ── Tile definitions (static — avoids re-creating on every render) ──
+const TILE_DEFS = [
+  { size: 64, color: 'rgba(124,111,247,0.15)', xPct: 0.05, yPct: 0.12, delay: 0, duration: 3200 },
+  { size: 48, color: 'rgba(59,130,246,0.12)', xPct: 0.82, yPct: 0.08, delay: 400, duration: 3800 },
+  { size: 56, color: 'rgba(124,111,247,0.10)', xPct: 0.70, yPct: 0.72, delay: 200, duration: 3400 },
+  { size: 40, color: 'rgba(200,169,110,0.12)', xPct: 0.15, yPct: 0.78, delay: 600, duration: 4000 },
+  { size: 36, color: 'rgba(124,111,247,0.18)', xPct: 0.42, yPct: 0.06, delay: 300, duration: 2800 },
+  { size: 32, color: 'rgba(59,130,246,0.14)', xPct: 0.88, yPct: 0.45, delay: 500, duration: 3600 },
+  { size: 28, color: 'rgba(200,169,110,0.15)', xPct: 0.08, yPct: 0.48, delay: 100, duration: 3000 },
+  { size: 34, color: 'rgba(124,111,247,0.12)', xPct: 0.58, yPct: 0.85, delay: 700, duration: 3200 },
+  { size: 20, color: 'rgba(124,111,247,0.20)', xPct: 0.28, yPct: 0.22, delay: 450, duration: 2600 },
+  { size: 18, color: 'rgba(59,130,246,0.18)', xPct: 0.75, yPct: 0.32, delay: 250, duration: 2400 },
+  { size: 22, color: 'rgba(200,169,110,0.16)', xPct: 0.35, yPct: 0.62, delay: 350, duration: 2800 },
+  { size: 16, color: 'rgba(124,111,247,0.22)', xPct: 0.92, yPct: 0.68, delay: 550, duration: 3000 },
+  { size: 12, color: 'rgba(124,111,247,0.25)', xPct: 0.50, yPct: 0.35, delay: 150, duration: 2200 },
+  { size: 14, color: 'rgba(59,130,246,0.20)', xPct: 0.20, yPct: 0.55, delay: 650, duration: 2600 },
+] as const;
+
+// ── Animated tile grid (memoised to avoid keyboard-triggered re-renders) ──
+const AnimatedTileGrid = React.memo(function AnimatedTileGrid() {
   const { width, height } = useWindowDimensions();
 
-  const tiles = [
-    { size: 64, color: 'rgba(124,111,247,0.15)', x: width * 0.05, y: height * 0.12, delay: 0, duration: 3200 },
-    { size: 48, color: 'rgba(59,130,246,0.12)', x: width * 0.82, y: height * 0.08, delay: 400, duration: 3800 },
-    { size: 56, color: 'rgba(124,111,247,0.10)', x: width * 0.7, y: height * 0.72, delay: 200, duration: 3400 },
-    { size: 40, color: 'rgba(200,169,110,0.12)', x: width * 0.15, y: height * 0.78, delay: 600, duration: 4000 },
-    { size: 36, color: 'rgba(124,111,247,0.18)', x: width * 0.42, y: height * 0.06, delay: 300, duration: 2800 },
-    { size: 32, color: 'rgba(59,130,246,0.14)', x: width * 0.88, y: height * 0.45, delay: 500, duration: 3600 },
-    { size: 28, color: 'rgba(200,169,110,0.15)', x: width * 0.08, y: height * 0.48, delay: 100, duration: 3000 },
-    { size: 34, color: 'rgba(124,111,247,0.12)', x: width * 0.58, y: height * 0.85, delay: 700, duration: 3200 },
-    { size: 20, color: 'rgba(124,111,247,0.20)', x: width * 0.28, y: height * 0.22, delay: 450, duration: 2600 },
-    { size: 18, color: 'rgba(59,130,246,0.18)', x: width * 0.75, y: height * 0.32, delay: 250, duration: 2400 },
-    { size: 22, color: 'rgba(200,169,110,0.16)', x: width * 0.35, y: height * 0.62, delay: 350, duration: 2800 },
-    { size: 16, color: 'rgba(124,111,247,0.22)', x: width * 0.92, y: height * 0.68, delay: 550, duration: 3000 },
-    { size: 12, color: 'rgba(124,111,247,0.25)', x: width * 0.5, y: height * 0.35, delay: 150, duration: 2200 },
-    { size: 14, color: 'rgba(59,130,246,0.20)', x: width * 0.2, y: height * 0.55, delay: 650, duration: 2600 },
-  ];
+  // Capture initial dimensions so keyboard open/close doesn't remount tiles
+  const dims = useRef({ width, height });
+
+  const tiles = TILE_DEFS.map(t => ({
+    size: t.size, color: t.color, delay: t.delay, duration: t.duration,
+    x: dims.current.width * t.xPct,
+    y: dims.current.height * t.yPct,
+  }));
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {tiles.map((t, i) => <FloatingTile key={i} {...t} />)}
     </View>
   );
-}
+});
 
 // ── Aurora gradient orbs ──────────────────────────────────────
 function AuroraBackground() {
@@ -139,7 +149,7 @@ function AuroraBackground() {
 export function FuturisticBackground() {
   return (
     <>
-      <View style={styles.bgBase} />
+      <View style={styles.bgBase} pointerEvents="none" />
       <AuroraBackground />
       <AnimatedTileGrid />
     </>

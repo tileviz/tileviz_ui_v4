@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, KeyboardAvoidingView,
   Platform, TextInput, Pressable, ActivityIndicator,
@@ -34,21 +34,44 @@ const EyeClosedIcon = () => (
 );
 
 // ── Futuristic text input ─────────────────────────────────────
-function GlassInput({
+const GlassInput = React.memo(function GlassInput({
   label, value, onChangeText, placeholder, secureTextEntry, keyboardType, autoCapitalize,
 }: {
   label: string; value: string; onChangeText: (t: string) => void;
   placeholder?: string; secureTextEntry?: boolean;
   keyboardType?: any; autoCapitalize?: any;
 }) {
-  const [focused, setFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const isPassword = secureTextEntry === true;
+
+  // Use animated border instead of state to avoid re-renders on focus/blur
+  const borderAnim = useRef(new Animated.Value(0)).current;
+
+  const handleFocus = useCallback(() => {
+    Animated.timing(borderAnim, {
+      toValue: 1, duration: 200, useNativeDriver: false,
+    }).start();
+  }, [borderAnim]);
+
+  const handleBlur = useCallback(() => {
+    Animated.timing(borderAnim, {
+      toValue: 0, duration: 200, useNativeDriver: false,
+    }).start();
+  }, [borderAnim]);
+
+  const togglePassword = useCallback(() => {
+    setPasswordVisible(v => !v);
+  }, []);
+
+  const animatedBorderColor = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(124,111,247,0.2)', 'rgba(124,111,247,0.5)'],
+  });
 
   return (
     <View style={gi.container}>
       <Text style={gi.label}>{label}</Text>
-      <View style={[gi.inputWrap, focused && gi.inputWrapFocused]}>
+      <Animated.View style={[gi.inputWrap, { borderColor: animatedBorderColor }]}>
         <View style={gi.inputRow}>
           <TextInput
             style={[gi.input, isPassword && gi.inputWithIcon]}
@@ -59,12 +82,12 @@ function GlassInput({
             secureTextEntry={isPassword && !passwordVisible}
             keyboardType={keyboardType}
             autoCapitalize={autoCapitalize}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
           />
           {isPassword && (
             <Pressable
-              onPress={() => setPasswordVisible(!passwordVisible)}
+              onPress={togglePassword}
               style={gi.eyeBtn}
               hitSlop={8}
             >
@@ -72,10 +95,10 @@ function GlassInput({
             </Pressable>
           )}
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
-}
+});
 
 const gi = StyleSheet.create({
   container: { marginBottom: 16, width: '100%' },
@@ -92,14 +115,6 @@ const gi = StyleSheet.create({
       backdropFilter: 'blur(8px)',
       WebkitBackdropFilter: 'blur(8px)',
     } as any : {}),
-  },
-  inputWrapFocused: {
-    borderColor: 'rgba(124,111,247,0.5)',
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   inputRow: {
     flexDirection: 'row',
@@ -127,7 +142,7 @@ const gi = StyleSheet.create({
 // ── Main AuthScreen ───────────────────────────────────────────
 interface Props { onAuthenticated: () => void; }
 
-export function AuthScreen({ onAuthenticated }: Props) {
+export const AuthScreen = React.memo(function AuthScreen({ onAuthenticated }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isSmall = width < 600;
@@ -141,9 +156,6 @@ export function AuthScreen({ onAuthenticated }: Props) {
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardTranslateY = useRef(new Animated.Value(30)).current;
 
-  // Logo glow pulse
-  const logoGlow = useRef(new Animated.Value(0.5)).current;
-
   // Button animation
   const btnScale = useRef(new Animated.Value(1)).current;
 
@@ -153,22 +165,14 @@ export function AuthScreen({ onAuthenticated }: Props) {
       Animated.timing(cardOpacity, {
         toValue: 1, duration: 1000, delay: 200,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: Platform.OS !== 'web',
+        useNativeDriver: true,
       }),
       Animated.timing(cardTranslateY, {
         toValue: 0, duration: 1000, delay: 200,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: Platform.OS !== 'web',
+        useNativeDriver: true,
       }),
     ]).start();
-
-    // Logo glow pulse
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(logoGlow, { toValue: 1, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
-        Animated.timing(logoGlow, { toValue: 0.5, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
-      ])
-    ).start();
   }, []);
 
   async function handleLogin() {
@@ -187,15 +191,11 @@ export function AuthScreen({ onAuthenticated }: Props) {
   }
 
   const handlePressIn = () => {
-    Animated.spring(btnScale, { toValue: 0.96, useNativeDriver: Platform.OS !== 'web' }).start();
+    Animated.spring(btnScale, { toValue: 0.96, useNativeDriver: true }).start();
   };
   const handlePressOut = () => {
-    Animated.spring(btnScale, { toValue: 1, useNativeDriver: Platform.OS !== 'web' }).start();
+    Animated.spring(btnScale, { toValue: 1, useNativeDriver: true }).start();
   };
-
-  const logoGlowOpacity = logoGlow.interpolate({
-    inputRange: [0.5, 1], outputRange: [0, 0.3],
-  });
 
   return (
     <View style={styles.container}>
@@ -287,7 +287,7 @@ export function AuthScreen({ onAuthenticated }: Props) {
       </KeyboardAvoidingView>
     </View>
   );
-}
+});
 
 // ── Styles ────────────────────────────────────────────────────
 const styles = StyleSheet.create({

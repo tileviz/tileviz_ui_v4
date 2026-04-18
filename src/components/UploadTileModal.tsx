@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal, Pressable,
-  ScrollView, Image, Platform, ActivityIndicator, Dimensions,
+  ScrollView, Image, Platform, ActivityIndicator,
   SafeAreaView,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
@@ -19,7 +19,6 @@ import { showAlert } from '../utils/alert';
 interface Props { visible: boolean; onClose: () => void; onUploaded?: () => void; }
 
 const CATS = ['marble', 'ceramic', 'stone', 'mosaic', 'wood'] as const;
-const { width: SW, height: SH } = Dimensions.get('window');
 
 export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
   const { user } = useAuthStore();
@@ -59,7 +58,7 @@ export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
         return;
       }
       const res = await IP.launchCameraAsync({
-        mediaTypes: IP.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.9,
       });
@@ -81,7 +80,7 @@ export function UploadTileModal({ visible, onClose, onUploaded }: Props) {
         return;
       }
       const res = await IP.launchImageLibraryAsync({
-        mediaTypes: IP.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.9,
       });
@@ -538,7 +537,7 @@ const s = StyleSheet.create({
   },
   reviewImage: {
     position: 'absolute', top: 0, left: 0,
-    width: SW, height: SH,
+    width: '100%', height: '100%',
   },
   processingOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,

@@ -7,26 +7,44 @@ const texCache: Record<string, THREE.DataTexture> = {};
 // Web: cache loaded THREE.Texture objects (GL-context bound)
 const imgTexCache: Record<string, THREE.Texture> = {};
 
-// Native: cache image objects produced by expo-three's TextureLoader.
-// Shape: { data: Asset, width, height } — the exact format expo-gl's texImage2D expects.
-// GL-context independent — safe to keep across NativeCanvas remounts.
-const imgAssetCache: Record<string, any> = {};
+// Native: cache the full THREE.Texture produced by expo-three's TextureLoader.
+// On GL context recreation (NativeCanvas remount) we clear these since
+// they are GL-context bound.
+const nativeTexCache: Record<string, THREE.Texture> = {};
 
-// In-flight load promises — ensures only ONE expo-three TextureLoader fires per URI,
-// regardless of how many surfaces (walls + floor) request the same image concurrently.
-const imgLoadingPromises: Record<string, Promise<any>> = {};
+// In-flight load promises — ensures only ONE expo-three TextureLoader fires per URI.
+const imgLoadingPromises: Record<string, Promise<THREE.Texture>> = {};
 
 /**
  * Call this whenever the expo-gl context is recreated (NativeCanvas remount).
- * Web THREE.Texture objects are bound to a specific GL context and must be
- * discarded. Native image objects have no GL binding — they are kept.
+ * All GL-context-bound textures must be discarded.
  */
 export function clearTextureCache(): void {
   Object.keys(imgTexCache).forEach(k => {
     try { imgTexCache[k].dispose(); } catch { /* ignore */ }
     delete imgTexCache[k];
   });
-  // imgAssetCache intentionally kept — no GL binding, survives context recreation
+  Object.keys(nativeTexCache).forEach(k => {
+    try { nativeTexCache[k].dispose(); } catch { /* ignore */ }
+    delete nativeTexCache[k];
+  });
+}
+
+/**
+ * Patch an expo-gl context so Three.js 0.166+ doesn't hit unsupported
+ * WebGL2 storage paths for expo-three Asset textures.
+ *
+ * texStorage2D is no-op'd so if Three.js somehow enters the texStorage
+ * branch, it gracefully falls through without crashing.
+ */
+export function patchGLForExpoThree(gl: any): void {
+  if (Platform.OS === 'web') return;
+  if (gl.__expoThreePatched) return;
+  const origTexStorage2D = gl.texStorage2D;
+  if (origTexStorage2D) gl.texStorage2D = () => {};
+  const origTexStorage3D = gl.texStorage3D;
+  if (origTexStorage3D) gl.texStorage3D = () => {};
+  gl.__expoThreePatched = true;
 }
 
 function buildDataTex(color: string, pattern: string): THREE.DataTexture {
@@ -55,61 +73,52 @@ export function makeProceduralMat(color:string,pattern:string,repX:number,repY:n
 }
 
 /**
- * Build a fresh THREE.Texture from a pre-downloaded asset, replicating
- * expo-three's internal format exactly:
- *   texture.isDataTexture = true
- *   texture.image = { data: Asset, width, height }
+ * Clone a texture produced by expo-three's TextureLoader.
+ * Preserves the isDataTexture flag that THREE.Texture.clone() drops.
  *
- * With isDataTexture=true, Three.js calls the 9-arg texImage2D:
- *   gl.texImage2D(target, level, internalFormat, width, height, 0, format, type, image.data)
- * expo-gl's patch handles Asset objects in that position — this is the ONLY
- * form that works correctly on React Native / expo-gl for downloaded assets.
- *
- * WHY NOT clone():
- *   THREE.Texture.copy() does not copy the non-standard isDataTexture property.
- *   A cloned texture loses isDataTexture=true, falls into the 6-arg texImage2D
- *   path which expo-gl cannot decode → renders solid BLACK.
+ * Sets isVideoTexture = true so Three.js skips the texStorage2D path
+ * and uses the 9-arg texImage2D that expo-gl supports for Asset objects.
+ * A no-op update() method is added to satisfy the VideoTexture interface.
  */
-function buildNativeTexture(
-  assetData: { data: any; width: number; height: number },
-  repX: number,
-  repY: number,
-): THREE.Texture {
-  const t = new THREE.Texture();
-  (t as any).isDataTexture = true;   // must set BEFORE needsUpdate — determines upload path
-  t.image          = assetData;
-  t.generateMipmaps = false;         // non-POT safe: never generate mipmaps
-  t.minFilter      = THREE.LinearFilter;
-  t.magFilter      = THREE.LinearFilter;
-  t.flipY          = false;          // expo-gl: OpenGL ES bottom-left origin
+function cloneNativeTexture(src: THREE.Texture, repX: number, repY: number): THREE.Texture {
+  const t = src.clone();
+  if ((src as any).isDataTexture) (t as any).isDataTexture = true;
+  (t as any).isVideoTexture = true;
+  (t as any).update = () => {};     // VideoTexture requires update()
   t.wrapS          = THREE.RepeatWrapping;
   t.wrapT          = THREE.RepeatWrapping;
+  t.generateMipmaps = false;
+  t.minFilter      = THREE.LinearFilter;
+  t.magFilter      = THREE.LinearFilter;
   t.repeat.set(Math.max(0.5, repX), Math.max(0.5, repY));
   t.needsUpdate    = true;
   return t;
 }
 
 /**
- * Returns a promise that resolves with the image object produced by expo-three's
- * TextureLoader for the given URI.  Only ONE TextureLoader fires per URI — all
- * concurrent callers (e.g. 32 wall-row surfaces) await the same promise so we
- * never download the same asset more than once per session.
+ * Load a texture via expo-three's TextureLoader (native only).
+ * Deduplicates: only one load per URI.
  */
-function loadNativeImageObj(uri: string): Promise<any> {
-  if (imgAssetCache[uri]) return Promise.resolve(imgAssetCache[uri]);
+function loadNativeTexture(uri: string): Promise<THREE.Texture> {
+  if (nativeTexCache[uri]) return Promise.resolve(nativeTexCache[uri]);
 
   if (!imgLoadingPromises[uri]) {
-    imgLoadingPromises[uri] = new Promise<any>((resolve, reject) => {
+    imgLoadingPromises[uri] = new Promise<THREE.Texture>((resolve, reject) => {
       try {
         const { TextureLoader: ExpoTL } = require('expo-three');
         new ExpoTL().load(
           uri,
           (t: THREE.Texture) => {
-            // t.image is { data: Asset, width, height } — exact format expo-gl expects
-            const imageObj = (t as any).image;
-            imgAssetCache[uri] = imageObj;
+            t.generateMipmaps = false;
+            t.minFilter       = THREE.LinearFilter;
+            t.magFilter       = THREE.LinearFilter;
+            t.flipY           = false;
+            // Force Three.js to skip texStorage2D → use texImage2D instead
+            (t as any).isVideoTexture = true;
+            (t as any).update = () => {};
+            nativeTexCache[uri] = t;
             delete imgLoadingPromises[uri];
-            resolve(imageObj);
+            resolve(t);
           },
           undefined,
           (e: any) => { delete imgLoadingPromises[uri]; reject(e); },
@@ -133,23 +142,20 @@ export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,f
   };
 
   if(Platform.OS!=='web'){
-    // ── Native path ────────────────────────────────────────────────────────
-    // Cache hit: image object already available → create texture synchronously
-    if(imgAssetCache[uri]){
-      mat.map=buildNativeTexture(imgAssetCache[uri],repX,repY);
+    // ── Native path ──────────────────────────────────────────────
+    if(nativeTexCache[uri]){
+      mat.map=cloneNativeTexture(nativeTexCache[uri],repX,repY);
       mat.needsUpdate=true;
     }else{
-      // Cache miss: deduplicated async load via expo-three TextureLoader.
-      // All concurrent callers (floor + 32 wall rows) share one promise.
-      loadNativeImageObj(uri)
-        .then((imageObj:any)=>{
-          mat.map=buildNativeTexture(imageObj,repX,repY);
+      loadNativeTexture(uri)
+        .then((srcTex:THREE.Texture)=>{
+          mat.map=cloneNativeTexture(srcTex,repX,repY);
           mat.needsUpdate=true;
         })
         .catch(fallback);
     }
   }else{
-    // ── Web path: standard THREE.TextureLoader + clone ─────────────────
+    // ── Web path: standard THREE.TextureLoader + clone ───────────
     const applyTexture=(src:THREE.Texture)=>{
       const c=src.clone() as any;
       c.wrapS=c.wrapT=THREE.RepeatWrapping;

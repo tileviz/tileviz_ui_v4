@@ -1,7 +1,39 @@
-node_modules
-.expo
-.sixth
+# Dependencies
+node_modules/
+
+# Expo
 .expo/
-.expo/*
-.expo-shared
-.xml
+.expo-shared/
+dist/
+
+# Native builds
+android/
+ios/
+
+# Metro bundler
+.metro-health-check*
+
+# OS files
+.DS_Store
+*.pem
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+.env.*
+
+# Build outputs
+*.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+temp/

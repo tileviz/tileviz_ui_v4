@@ -36,6 +36,10 @@ export function AppNavigator() {
   // ── Intro → Auth flow state ─────────────────────────────────
   const [showIntro, setShowIntro] = useState(true);
 
+  // Stable callback refs to avoid re-mounting screens on re-render
+  const handleIntroContinue = useCallback(() => setShowIntro(false), []);
+  const handleAuthenticated = useCallback(() => setActivePage('visualizer'), [setActivePage]);
+
   // ── Dynamic page title for browser tab ──────────────────────
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -146,13 +150,13 @@ export function AppNavigator() {
   // ── Intro screen (shown first) ─────────────────────────────
   if (!user && showIntro) {
     console.log('[TileViz] Showing intro screen');
-    return <IntroScreen onContinue={() => setShowIntro(false)} />;
+    return <IntroScreen onContinue={handleIntroContinue} />;
   }
 
   // ── Auth screen ─────────────────────────────────────────────
   if (!user) {
     console.log('[TileViz] Showing auth screen');
-    return <AuthScreen onAuthenticated={() => setActivePage('visualizer')} />;
+    return <AuthScreen onAuthenticated={handleAuthenticated} />;
   }
 
   // ── Main app ────────────────────────────────────────────────

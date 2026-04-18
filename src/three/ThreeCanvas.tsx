@@ -58,7 +58,15 @@ export interface RoomBuildConfig {
   wallColor?:   string;
 }
 
-interface Props { config: RoomBuildConfig | null; }
+/** Function that captures a screenshot and returns a base64 data URI */
+export type CaptureScreenshotFn = () => Promise<string | null>;
+
+interface Props {
+  config: RoomBuildConfig | null;
+  onResetDesign?: () => void;
+  /** Register a function that can be called to capture a screenshot of the 3D canvas */
+  onCaptureReady?: (fn: CaptureScreenshotFn) => void;
+}
 
 // ── Helper: dispose a room group's geometries & materials ──
 function disposeGroup(group: THREE.Group | null) {
@@ -131,7 +139,7 @@ function CtrlBtn({ icon, label, onPress, active }: { icon: string; label: string
 }
 
 // ── Web 3D Canvas ─────────────────────────────────────────────
-function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
+function WebCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void }) {
   const containerRef = useRef<any>(null);
   const configRef = useRef(config);
   const stateRef = useRef<{
@@ -200,9 +208,73 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
       stateRef.current = state;
       setReady(true);
 
+      // Register screenshot capture function
+      if (onCaptureReady) {
+        onCaptureReady(async () => {
+          // Render one clean frame
+          bundle.renderer.render(bundle.scene, bundle.camera);
+
+          // Attempt 1: direct toDataURL (works if canvas isn't CORS-tainted)
+          try {
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            if (dataUrl && dataUrl.length > 100) {
+              console.log('[TileViz] Screenshot via toDataURL:', dataUrl.length, 'chars');
+              return dataUrl;
+            }
+          } catch (e) {
+            console.warn('[TileViz] toDataURL failed (CORS tainted?):', e);
+          }
+
+          // Attempt 2: render target + readPixels (bypasses CORS)
+          try {
+            const w = canvas.width;
+            const h = canvas.height;
+            const rt = new THREE.WebGLRenderTarget(w, h, {
+              format: THREE.RGBAFormat,
+              type: THREE.UnsignedByteType,
+            });
+            bundle.renderer.setRenderTarget(rt);
+            bundle.renderer.render(bundle.scene, bundle.camera);
+            const pixels = new Uint8Array(w * h * 4);
+            bundle.renderer.readRenderTargetPixels(rt, 0, 0, w, h, pixels);
+            bundle.renderer.setRenderTarget(null);
+            rt.dispose();
+
+            // Check if we got actual pixel data
+            let hasData = false;
+            for (let i = 0; i < Math.min(pixels.length, 1000); i += 4) {
+              if (pixels[i] !== 0 || pixels[i+1] !== 0 || pixels[i+2] !== 0) {
+                hasData = true; break;
+              }
+            }
+            console.log('[TileViz] readRenderTargetPixels hasData:', hasData, 'size:', w, 'x', h);
+
+            if (hasData) {
+              const offscreen = document.createElement('canvas');
+              offscreen.width = w;
+              offscreen.height = h;
+              const ctx = offscreen.getContext('2d');
+              if (!ctx) return null;
+              const imgData = ctx.createImageData(w, h);
+              for (let row = 0; row < h; row++) {
+                const srcOff = (h - row - 1) * w * 4;
+                const dstOff = row * w * 4;
+                imgData.data.set(pixels.subarray(srcOff, srcOff + w * 4), dstOff);
+              }
+              ctx.putImageData(imgData, 0, 0);
+              return offscreen.toDataURL('image/jpeg', 0.85);
+            }
+          } catch (e) {
+            console.warn('[TileViz] readRenderTargetPixels failed:', e);
+          }
+
+          return null;
+        });
+      }
+
       const loop = () => {
         state.animId = requestAnimationFrame(loop);
-        if (state.roomGroup && state.autoRotate && !state.interiorMode) state.roomGroup.rotation.y += 0.003;
+        if (state.roomGroup && state.autoRotate) state.roomGroup.rotation.y += 0.003;
         bundle.renderer.render(bundle.scene, bundle.camera);
       };
       loop();
@@ -414,8 +486,6 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
     setInteriorMode(s.interiorMode);
 
     if (s.interiorMode) {
-      s.autoRotate = false;
-      setAutoRotate(false);
       s.yaw = 0;
       s.pitch = 0;
       setupInteriorCamera(s.bundle.camera, cfg.widthFt, cfg.lengthFt, cfg.heightFt);
@@ -427,8 +497,6 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
     } else {
       frameCameraToRoom(s.bundle.camera, cfg.widthFt, cfg.lengthFt, cfg.heightFt);
       setExteriorLighting(s.bundle, s.lightOn);
-      s.autoRotate = true;
-      setAutoRotate(true);
       const c = containerRef.current?.querySelector('canvas');
       if (c) c.style.cursor = 'default';
     }
@@ -444,6 +512,7 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
     { icon: autoRotate?'⏸':'▶', label: autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s&&!s.interiorMode){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
     { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){setInteriorLighting(s.bundle);}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} } },
     { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} } },
+    ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
   return (
@@ -477,7 +546,7 @@ function WebCanvas({ config }: { config: RoomBuildConfig | null }) {
 }
 
 // ── Native 3D canvas (iOS / Android) ──────────────────────────
-function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
+function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void }) {
   const { GLView } = require('expo-gl');
   const configRef = useRef(config);
   const stateRef = useRef<{
@@ -535,9 +604,51 @@ function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
     stateRef.current = state;
     setReady(true);
 
+    // Register screenshot capture function (native: GLView.takeSnapshotAsync)
+    if (onCaptureReady) {
+      onCaptureReady(async () => {
+        console.log('[TileViz] Native capture function CALLED');
+        try {
+          console.log('[TileViz] Native capture: requiring expo-gl...');
+          const ExpoGL = require('expo-gl');
+          const GLV = ExpoGL.GLView;
+          console.log('[TileViz] Native capture: GLV exists:', !!GLV);
+          console.log('[TileViz] Native capture: takeSnapshotAsync exists:', typeof GLV?.takeSnapshotAsync);
+          console.log('[TileViz] Native capture: gl context id:', gl?.contextId);
+
+          bundle.renderer.render(bundle.scene, bundle.camera);
+          gl.endFrameEXP();
+
+          console.log('[TileViz] Native capture: calling takeSnapshotAsync...');
+          const snapshot = await GLV.takeSnapshotAsync(gl, { format: 'jpeg', compress: 0.85 });
+          console.log('[TileViz] Native capture: snapshot:', JSON.stringify(snapshot));
+
+          if (snapshot?.uri) {
+            // SDK 55: use new File API, convert bytes to base64
+            const { File } = require('expo-file-system');
+            const file = new File(snapshot.uri);
+            const bytes = await file.bytes();
+            // Convert Uint8Array to base64 string
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+            console.log('[TileViz] Native capture: got base64, length:', base64?.length);
+            return `data:image/jpeg;base64,${base64}`;
+          }
+          console.log('[TileViz] Native capture: no URI');
+          return null;
+        } catch (e: any) {
+          console.error('[TileViz] Native capture ERROR:', e?.message || e, e?.stack);
+          return null;
+        }
+      });
+    }
+
     const loop = () => {
       requestAnimationFrame(loop);
-      if (state.roomGroup && state.autoRotate && !state.interiorMode) {
+      if (state.roomGroup && state.autoRotate) {
         state.roomGroup.rotation.y += 0.003;
       }
       bundle.renderer.render(bundle.scene, bundle.camera);
@@ -665,8 +776,6 @@ function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
 
     if (s.interiorMode) {
       // Enter 360° interior mode
-      s.autoRotate = false;
-      setAutoRotate(false);
       s.yaw = 0;
       s.pitch = 0;
       setupInteriorCamera(s.bundle.camera, cfg.widthFt, cfg.lengthFt, cfg.heightFt);
@@ -677,8 +786,6 @@ function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
       // Exit to exterior view
       frameCameraToRoom(s.bundle.camera, cfg.widthFt, cfg.lengthFt, cfg.heightFt);
       setExteriorLighting(s.bundle, s.lightOn);
-      s.autoRotate = true;
-      setAutoRotate(true);
     }
   };
 
@@ -739,6 +846,7 @@ function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
       const s = stateRef.current;
       if (s?.fixturesGroup) { s.objectsOn = !s.objectsOn; s.fixturesGroup.visible = s.objectsOn; setObjectsOn(s.objectsOn); }
     }},
+    ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
   return (
@@ -772,9 +880,9 @@ function NativeCanvas({ config }: { config: RoomBuildConfig | null }) {
 }
 
 // ── Main export — routes web vs native ───────────────────────
-export function ThreeCanvas({ config }: Props) {
+export function ThreeCanvas({ config, onResetDesign, onCaptureReady }: Props) {
   if (Platform.OS === 'web') {
-    return <WebCanvas config={config} />;
+    return <WebCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} />;
   }
-  return <NativeCanvas config={config} />;
+  return <NativeCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} />;
 }

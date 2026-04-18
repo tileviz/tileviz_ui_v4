@@ -64,7 +64,7 @@ export function createScene(gl: any, w: number, h: number): SceneBundle {
 
 // ── Web renderer (standard THREE.WebGLRenderer on a <canvas>) ─
 export function createWebScene(canvas: HTMLCanvasElement, w: number, h: number): SceneBundle {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   // CRITICAL: Set pixelRatio BEFORE setSize, and use false to preserve canvas CSS
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h, false); // false = don't override canvas CSS dimensions

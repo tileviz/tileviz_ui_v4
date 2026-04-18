@@ -1,6 +1,6 @@
 // VisualizerScreen — full 3D visualizer with auto-preview & live updates
 // Responsive: Phone shows full-screen canvas with slide-up settings panel
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, Animated, Modal, Pressable, Platform } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
@@ -8,11 +8,12 @@ import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
 import { useLayout } from '../hooks/useLayout';
 import { RoomType } from '../types';
-import { ThreeCanvas, RoomBuildConfig } from '../three/ThreeCanvas';
+import { ThreeCanvas, RoomBuildConfig, CaptureScreenshotFn } from '../three/ThreeCanvas';
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
 import { showAlert } from '../utils/alert';
+import { shareDesignPdf } from '../utils/sharePdf';
 
 // 35 curated wall colors — common Indian home paint palette
 const WALL_COLORS: Array<{ name: string; hex: string }> = [
@@ -173,11 +174,16 @@ function SidebarContent({
 }
 
 export function VisualizerScreen() {
-  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage } = useAppStore();
-  const { selectedTile } = useCatalogStore();
+  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage, clearDesign } = useAppStore();
+  const { selectedTile, setSelectedTile } = useCatalogStore();
   const { isPhone, isTablet } = useLayout();
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const captureRef = useRef<CaptureScreenshotFn | null>(null);
+  const handleCaptureReady = useCallback((fn: CaptureScreenshotFn) => {
+    console.log('[TileViz] Capture function registered');
+    captureRef.current = fn;
+  }, []);
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
   const isCustom = selectedTileSize === 'custom';
@@ -209,6 +215,36 @@ export function VisualizerScreen() {
     setActivePage('saved');
   }
 
+  const handleResetDesign = useCallback(() => {
+    clearDesign();
+    setSelectedTile(null);
+  }, [clearDesign, setSelectedTile]);
+
+  const handleShare = useCallback(async () => {
+    try {
+      console.log('[TileViz] Share pressed, captureRef:', !!captureRef.current);
+      let screenshot: string | null = null;
+      if (captureRef.current) {
+        screenshot = await captureRef.current();
+        console.log('[TileViz] Screenshot captured:', screenshot ? `${screenshot.length} chars` : 'null');
+      }
+      await shareDesignPdf({
+        roomType,
+        dimensions,
+        tileSize: isCustom ? `${tw}x${th}` : selectedTileSize,
+        wallColor,
+        zoneRows,
+        selectedTile,
+        tilesNeeded,
+        totalSqFt,
+        screenshotDataUri: screenshot ?? undefined,
+      });
+    } catch (e: any) {
+      console.error('[TileViz] Share error:', e);
+      showAlert('Share Error', e?.message ?? 'Failed to generate PDF');
+    }
+  }, [roomType, dimensions, selectedTileSize, isCustom, tw, th, wallColor, zoneRows, selectedTile, tilesNeeded, totalSqFt]);
+
   const getDesignData = () => ({
     roomType,
     dimensions: { length: dimensions.length, width: dimensions.width, height: dimensions.height },
@@ -236,9 +272,9 @@ export function VisualizerScreen() {
       <View style={{ flex: 1, backgroundColor: Colors.surface }}>
         {/* Full-screen 3D Canvas */}
         <View style={{ flex: 1, backgroundColor: '#e8e4dc', overflow: 'hidden' }}>
-          <ThreeCanvas config={liveConfig} />
+          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} />
 
-          {/* Compact floating info bar */}
+           {/* Compact floating info bar */}
           <View style={s.mobileInfoBar}>
             <Text style={s.mobileInfoText}>{roomLabel}</Text>
             <View style={s.mobileInfoDivider} />
@@ -265,6 +301,15 @@ export function VisualizerScreen() {
               </React.Fragment>
             ))}
           </View>
+
+          {/* Share FAB */}
+          <TouchableOpacity
+            onPress={handleShare}
+            style={s.settingsFab}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 16 }}>📤</Text>
+          </TouchableOpacity>
 
           {/* Settings FAB */}
           <TouchableOpacity
@@ -333,7 +378,7 @@ export function VisualizerScreen() {
         </View>
 
         <View style={{ flex: 1, backgroundColor: '#e8e4dc', overflow: 'hidden' }}>
-          <ThreeCanvas config={liveConfig} />
+          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} />
         </View>
 
         <View style={s.bottomBar}>
@@ -353,7 +398,7 @@ export function VisualizerScreen() {
               </React.Fragment>
             ))}
             <View style={{ flexDirection: 'row', gap: 8, marginLeft: 8 }}>
-              <Button label="📤 Share" onPress={() => showAlert('Share', 'Coming soon')} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
+              <Button label="📤 Share" onPress={handleShare} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
             </View>
           </ScrollView>
         </View>

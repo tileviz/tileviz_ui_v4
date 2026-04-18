@@ -31,20 +31,13 @@ export function clearTextureCache(): void {
 }
 
 /**
- * Patch an expo-gl context so Three.js 0.166+ doesn't hit unsupported
- * WebGL2 storage paths for expo-three Asset textures.
- *
- * texStorage2D is no-op'd so if Three.js somehow enters the texStorage
- * branch, it gracefully falls through without crashing.
+ * No-op placeholder — kept for backwards compatibility with scene.ts import.
+ * The isVideoTexture approach on individual textures handles the expo-gl
+ * compatibility; we do NOT patch the GL context globally because that
+ * breaks procedural DataTextures which need real texStorage2D.
  */
-export function patchGLForExpoThree(gl: any): void {
-  if (Platform.OS === 'web') return;
-  if (gl.__expoThreePatched) return;
-  const origTexStorage2D = gl.texStorage2D;
-  if (origTexStorage2D) gl.texStorage2D = () => {};
-  const origTexStorage3D = gl.texStorage3D;
-  if (origTexStorage3D) gl.texStorage3D = () => {};
-  gl.__expoThreePatched = true;
+export function patchGLForExpoThree(_gl: any): void {
+  // intentionally empty
 }
 
 function buildDataTex(color: string, pattern: string): THREE.DataTexture {

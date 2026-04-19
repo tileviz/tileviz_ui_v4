@@ -3,14 +3,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Image,
+  StyleSheet, Image, Animated,
 } from 'react-native';
 import { Colors, Radii, Shadows } from '../config/theme';
-import { ROOM_TYPES, ROOM_DEFAULTS, TILE_SIZES } from '../config';
+import { ROOM_TYPES, ROOM_DEFAULTS, TILE_SIZES, KITCHEN_COUNTER_FT } from '../config';
 import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
 import { useAuthStore } from '../store/auth.store';
-import { RoomType } from '../types';
+import { RoomType, TilePattern } from '../types';
 import { SaveInventoryModal } from './SaveInventoryModal';
 import { CreateInventoryPayload } from '../api';
 import { useLayout } from '../hooks/useLayout';
@@ -40,12 +40,17 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
+  const isKitchen = roomType === 'kitchen';
+  const isParking = roomType === 'parking';
 
   const isCustom = selectedTileSize === 'custom';
   const [tw, th] = isCustom
     ? [parseFloat(customW) || 12, parseFloat(customH) || 12]
     : selectedTileSize.split('x').map(Number);
-  const rowCount = Math.max(1, Math.round(dimensions.height / (th / 12)));
+  const counterFt = roomType === 'kitchen' ? KITCHEN_COUNTER_FT : 0;
+  const rowCount = Math.max(1, Math.round((dimensions.height - counterFt) / (th / 12)));
   const rules = SURFACE_RULES[roomType];
   const canSave = user?.role === 'admin' || user?.role === 'shop_owner';
 
@@ -69,26 +74,67 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
   const getRow = (wallKey: string, rowIndex: number) =>
     zoneRows.find(r => r.wallKey === wallKey && r.rowIndex === rowIndex);
 
-  function focusRow(wallKey: string, rowIndex: number) {
+  // Toggle row expansion (kitchen pattern picker) or direct assign (other rooms)
+  function handleRowTap(wallKey: string, rowIndex: number) {
     const k = `${wallKey}:${rowIndex}`;
-    if (assigningKey === k) {
-      // Toggle off
+    const shouldExpand = (isKitchen && wallKey !== 'floor') || (isParking && wallKey === 'floor');
+    if (shouldExpand) {
+      setExpandedRow(prev => prev === k ? null : k);
       setAssigningKey(null);
     } else {
-      // Set assigning mode
-      setAssigningKey(k);
-      // On mobile, auto-close sidebar so user can see the catalog tiles
-      if (isPhone) {
-        setSidebarOpen(false);
-        const label = wallKey === 'floor' ? 'Floor Tile' : `Row ${rowIndex + 1}`;
-        showAlert('Select a Tile', `Tap a tile from the catalog to assign it to ${label}`);
+      // Non-kitchen or floor: direct assign mode
+      if (assigningKey === k) {
+        setAssigningKey(null);
+      } else {
+        setAssigningKey(k);
+        if (isPhone) {
+          setSidebarOpen(false);
+          const label = wallKey === 'floor' ? 'Floor Tile' : `Row ${rowIndex + 1}`;
+          showAlert('Select a Tile', `Tap a tile from the catalog to assign it to ${label}`);
+        }
       }
     }
   }
 
+  // Store a patternType on the row (create row if needed)
+  function setRowPattern(wallKey: string, rowIndex: number, patternType: TilePattern) {
+    const existing = getRow(wallKey, rowIndex);
+    const updated = {
+      rowIndex, wallKey,
+      ...(existing ?? {}),
+      patternType,
+      // Clear accent tile when switching to plain
+      ...(patternType === 'plain' ? { tileBId: undefined, tileBName: undefined, tileBImageUri: undefined, tileBColor: undefined } : {}),
+    };
+    setZoneRows(
+      zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
+        ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? updated : r)
+        : [...zoneRows, updated]
+    );
+  }
+
+  // Focus a specific slot (base or accent) for catalog assignment
+  function focusSlot(wallKey: string, rowIndex: number, slot: 'base' | 'accent') {
+    const k = slot === 'accent' ? `${wallKey}:${rowIndex}:accent` : `${wallKey}:${rowIndex}`;
+    setAssigningKey(assigningKey === k ? null : k);
+    if (isPhone && assigningKey !== k) {
+      setSidebarOpen(false);
+      const slotLabel = isParking
+        ? (slot === 'accent' ? 'Dark Tile' : 'Light Tile')
+        : (slot === 'accent' ? 'Accent Tile' : 'Base Tile');
+      const location = isParking ? 'Floor' : `Row ${rowIndex + 1}`;
+      showAlert('Select a Tile', `Tap a tile from the catalog to assign as ${slotLabel} for ${location}`);
+    }
+  }
+
+  function focusRow(wallKey: string, rowIndex: number) {
+    handleRowTap(wallKey, rowIndex);
+  }
+
   function clearRow(wallKey: string, rowIndex: number) {
     setZoneRows(zoneRows.filter(r => !(r.wallKey === wallKey && r.rowIndex === rowIndex)));
-    if (assigningKey === `${wallKey}:${rowIndex}`) setAssigningKey(null);
+    setAssigningKey(null);
+    setExpandedRow(null);
   }
 
   function handleGenerate() {
@@ -247,50 +293,173 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
 
               {surfaces.map(surf => {
                 const assignedCount = Array.from({ length: surf.rows }, (_, i) => getRow(surf.key, i)).filter(Boolean).length;
+                const isWalls = surf.key !== 'floor';
+                const showPatternUI = (isKitchen && isWalls) || (isParking && !isWalls);
                 return (
                   <View key={surf.key} style={st.surfaceCard}>
                     <View style={st.surfaceHeader}>
                       <Text style={{ fontSize: 13 }}>{surf.key === 'floor' ? '▦' : '🧱'}</Text>
                       <Text style={st.surfaceLabel}>{surf.label}</Text>
+                      {showPatternUI && isWalls && (
+                        <Text style={st.surfaceHint}>All walls</Text>
+                      )}
                       <View style={st.surfaceBadge}>
                         <Text style={st.surfaceBadgeTx}>{assignedCount}/{surf.rows}</Text>
                       </View>
                     </View>
-                    <View style={{ padding: 6, gap: 3 }}>
+                    <View style={{ padding: 6, gap: 4 }}>
                       {Array.from({ length: surf.rows }, (_, r) => {
                         const row = getRow(surf.key, r);
                         const k = `${surf.key}:${r}`;
-                        const focused = assigningKey === k;
+                        const isExpanded = expandedRow === k;
+                        const focused = assigningKey === k || assigningKey === `${k}:accent`;
                         const assigned = !!row?.tileId || !!row?.color;
+                        const pt = row?.patternType ?? 'plain';
+
                         return (
-                          <TouchableOpacity
-                            key={r}
-                            onPress={() => focusRow(surf.key, r)}
-                            style={[st.rowChip, focused && st.rowChipFocused, assigned && st.rowChipAssigned]}
-                            activeOpacity={0.7}
-                          >
-                            <View style={[st.rowThumb, !row?.tileImageUri && assigned && row?.color ? { backgroundColor: row.color } : {}]}>
-                              {row?.tileImageUri ? (
-                                <Image source={{ uri: row.tileImageUri }} style={st.rowThumbImg} resizeMode="cover" />
-                              ) : focused && !assigned ? (
-                                <View style={st.pulseIndicator} />
-                              ) : null}
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={[st.rowLabel, focused && { color: Colors.gold }]}>
-                                {surf.key === 'floor' ? 'FLOOR TILE' : `ROW ${r + 1}`}
+                          <View key={r}>
+                            {/* ── Row header chip ── */}
+                            <TouchableOpacity
+                              onPress={() => handleRowTap(surf.key, r)}
+                              style={[
+                                st.rowChip,
+                                focused && st.rowChipFocused,
+                                assigned && !isExpanded && st.rowChipAssigned,
+                                isExpanded && st.rowChipExpanded,
+                              ]}
+                              activeOpacity={0.7}
+                            >
+                              {/* Tile preview thumbnail(s) */}
+                              <View style={st.rowThumbGroup}>
+                                <View style={[st.rowThumb, !row?.tileImageUri && assigned && row?.color ? { backgroundColor: row.color } : {}]}>
+                                  {row?.tileImageUri
+                                    ? <Image source={{ uri: row.tileImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                    : focused && !assigned ? <View style={st.pulseIndicator} /> : null}
+                                </View>
+                                {(pt === 'pattern1' || pt === 'pattern2' || pt === 'checker') && row?.tileBImageUri && (
+                                  <View style={[st.rowThumb, st.rowThumbB]}>
+                                    <Image source={{ uri: row.tileBImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                  </View>
+                                )}
+                              </View>
+
+                              <View style={{ flex: 1 }}>
+                                <Text style={[st.rowLabel, (focused || isExpanded) && { color: Colors.gold }]}>
+                                  {surf.key === 'floor' ? 'FLOOR TILE' : `ROW ${r + 1}`}
+                                </Text>
+                                <Text style={[st.rowTile, !assigned && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
+                                  {showPatternUI && pt !== 'plain' && assigned
+                                    ? `${pt === 'checker' ? 'Checker Mix' : pt === 'pattern1' ? '1:3 Mix' : '1:2 Mix'} · ${row?.tileName ?? ''}`
+                                    : assigned ? row?.tileName ?? 'Custom' : 'Tap to configure'}
+                                </Text>
+                              </View>
+
+                              {assigned && !isExpanded && (
+                                <TouchableOpacity onPress={() => clearRow(surf.key, r)} style={st.clearBtn} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+                                  <Text style={{ fontSize: 8, color: Colors.text3 }}>✕</Text>
+                                </TouchableOpacity>
+                              )}
+                              <Text style={[st.chevron, isExpanded && st.chevronUp]}>
+                                {showPatternUI ? (isExpanded ? '▲' : '▼') : ''}
                               </Text>
-                              <Text style={[st.rowTile, !assigned && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
-                                {focused && !assigned ? '← Select from catalog' : assigned ? row?.tileName ?? 'Custom' : 'Not assigned'}
-                              </Text>
-                            </View>
-                            {assigned && (
-                              <TouchableOpacity onPress={() => clearRow(surf.key, r)} style={st.clearBtn} hitSlop={{top:6,bottom:6,left:6,right:6}}>
-                                <Text style={{ fontSize: 8, color: Colors.text3 }}>✕</Text>
-                              </TouchableOpacity>
+                            </TouchableOpacity>
+
+                            {/* ── Pattern picker (expanded) ── */}
+                            {showPatternUI && isExpanded && (
+                              <View style={st.patternPanel}>
+                                {/* Pattern selector buttons */}
+                                <View style={st.patternBtnRow}>
+                                  {(isParking
+                                    ? ([
+                                        { key: 'plain',   label: 'Plain',       icon: '▦' },
+                                        { key: 'checker', label: 'Checker',      icon: '◼◻' },
+                                      ] as { key: TilePattern; label: string; icon: string }[])
+                                    : ([
+                                        { key: 'plain',    label: 'Plain',    icon: '▬' },
+                                        { key: 'pattern1', label: '1 in 3',   icon: '▬▬◼' },
+                                        { key: 'pattern2', label: '1 in 2',   icon: '▬◼' },
+                                      ] as { key: TilePattern; label: string; icon: string }[])
+                                  ).map(p => (
+                                    <TouchableOpacity
+                                      key={p.key}
+                                      onPress={() => setRowPattern(surf.key, r, p.key)}
+                                      style={[st.patternBtn, pt === p.key && st.patternBtnActive]}
+                                      activeOpacity={0.75}
+                                    >
+                                      <Text style={[st.patternBtnIcon, pt === p.key && st.patternBtnIconActive]}>{p.icon}</Text>
+                                      <Text style={[st.patternBtnTx, pt === p.key && st.patternBtnTxActive]}>{p.label}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
+
+                                {/* Base tile slot */}
+                                <TouchableOpacity
+                                  style={[st.slotRow, assigningKey === k && st.slotRowActive]}
+                                  onPress={() => focusSlot(surf.key, r, 'base')}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={[st.slotThumb, { backgroundColor: row?.color ?? Colors.surface2 }]}>
+                                    {row?.tileImageUri
+                                      ? <Image source={{ uri: row.tileImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                      : <Text style={st.slotPlus}>+</Text>}
+                                  </View>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={st.slotLabel}>{isParking && pt === 'checker' ? 'Light Tile' : 'Base Tile'}</Text>
+                                    <Text style={[st.slotTile, !row?.tileName && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
+                                      {row?.tileName ?? 'Tap to assign'}
+                                    </Text>
+                                  </View>
+                                  {row?.tileId && (
+                                    <TouchableOpacity onPress={() => {
+                                      const existing = getRow(surf.key, r);
+                                      if (existing) setZoneRows(zoneRows.map(rr => rr.wallKey === surf.key && rr.rowIndex === r ? { ...rr, tileId: undefined, tileName: undefined, tileImageUri: undefined, color: undefined } : rr));
+                                    }} hitSlop={8}>
+                                      <Text style={{ fontSize: 10, color: Colors.text3 }}>✕</Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </TouchableOpacity>
+
+                                {/* Accent tile slot — pattern1/pattern2 (kitchen) or checker (parking) */}
+                                {(pt === 'pattern1' || pt === 'pattern2' || pt === 'checker') && (
+                                  <TouchableOpacity
+                                    style={[st.slotRow, st.slotRowAccent, assigningKey === `${k}:accent` && st.slotRowActive]}
+                                    onPress={() => focusSlot(surf.key, r, 'accent')}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={[st.slotThumb, st.slotThumbAccent, { backgroundColor: row?.tileBColor ?? Colors.surface2 }]}>
+                                      {row?.tileBImageUri
+                                        ? <Image source={{ uri: row.tileBImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                        : <Text style={st.slotPlus}>+</Text>}
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={st.slotLabel}>
+                                        {pt === 'checker'
+                                          ? 'Dark Tile'
+                                          : <>Accent Tile <Text style={st.slotHint}>({pt === 'pattern1' ? 'every 3rd' : 'every 2nd'})</Text></>}
+                                      </Text>
+                                      <Text style={[st.slotTile, !row?.tileBName && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
+                                        {row?.tileBName ?? 'Tap to assign'}
+                                      </Text>
+                                    </View>
+                                    {row?.tileBId && (
+                                      <TouchableOpacity onPress={() => {
+                                        setZoneRows(zoneRows.map(rr => rr.wallKey === surf.key && rr.rowIndex === r ? { ...rr, tileBId: undefined, tileBName: undefined, tileBImageUri: undefined, tileBColor: undefined } : rr));
+                                      }} hitSlop={8}>
+                                        <Text style={{ fontSize: 10, color: Colors.text3 }}>✕</Text>
+                                      </TouchableOpacity>
+                                    )}
+                                  </TouchableOpacity>
+                                )}
+
+                                {/* Clear row */}
+                                {assigned && (
+                                  <TouchableOpacity onPress={() => clearRow(surf.key, r)} style={st.clearRowBtn}>
+                                    <Text style={st.clearRowTx}>{isParking ? 'Clear Floor' : `Clear Row ${r + 1}`}</Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
                             )}
-                            {focused && <View style={st.focusDot} />}
-                          </TouchableOpacity>
+                          </View>
                         );
                       })}
                     </View>
@@ -436,6 +605,92 @@ const st = StyleSheet.create({
   focusDot: {
     width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.gold,
     marginLeft: 4,
+  },
+  // Kitchen pattern UI
+  surfaceHint: {
+    fontSize: 9, color: Colors.text3, fontStyle: 'italic', marginRight: 4,
+  },
+  rowChipExpanded: {
+    borderColor: Colors.gold, borderStyle: 'solid', borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+    backgroundColor: 'rgba(200,169,110,0.08)',
+  },
+  rowThumbGroup: {
+    flexDirection: 'row', gap: 2,
+  },
+  rowThumbB: {
+    borderColor: 'rgba(124,111,247,0.4)',
+  },
+  chevron: {
+    fontSize: 8, color: Colors.text3, marginLeft: 2, width: 10, textAlign: 'center',
+  },
+  chevronUp: { color: Colors.gold },
+  patternPanel: {
+    backgroundColor: 'rgba(200,169,110,0.05)',
+    borderWidth: 1, borderTopWidth: 0,
+    borderColor: Colors.gold,
+    borderBottomLeftRadius: Radii.md, borderBottomRightRadius: Radii.md,
+    padding: 8, gap: 6,
+  },
+  patternBtnRow: {
+    flexDirection: 'row', gap: 5,
+  },
+  patternBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 7, paddingHorizontal: 4,
+    borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radii.md,
+    backgroundColor: Colors.white,
+  },
+  patternBtnActive: {
+    borderColor: Colors.gold, backgroundColor: 'rgba(200,169,110,0.12)',
+  },
+  patternBtnIcon: {
+    fontSize: 11, color: Colors.text3, marginBottom: 2,
+  },
+  patternBtnIconActive: { color: Colors.gold },
+  patternBtnTx: {
+    fontSize: 9, fontWeight: '600', color: Colors.text3, letterSpacing: 0.2,
+  },
+  patternBtnTxActive: { color: Colors.gold },
+  slotRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    padding: 8, borderWidth: 1, borderColor: Colors.border, borderRadius: Radii.md,
+    backgroundColor: Colors.white,
+  },
+  slotRowAccent: {
+    borderColor: 'rgba(124,111,247,0.3)', backgroundColor: 'rgba(124,111,247,0.03)',
+  },
+  slotRowActive: {
+    borderColor: Colors.gold, backgroundColor: 'rgba(200,169,110,0.1)',
+    ...Shadows.card,
+  },
+  slotThumb: {
+    width: 36, height: 36, borderRadius: 6,
+    borderWidth: 1, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  slotThumbAccent: {
+    borderColor: 'rgba(124,111,247,0.4)',
+  },
+  slotPlus: {
+    fontSize: 16, color: Colors.text3, fontWeight: '300',
+  },
+  slotLabel: {
+    fontSize: 9, fontWeight: '700', color: Colors.text3,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2,
+  },
+  slotHint: {
+    fontSize: 8, fontWeight: '400', color: Colors.text3,
+    textTransform: 'none', letterSpacing: 0,
+  },
+  slotTile: {
+    fontSize: 11, fontWeight: '500', color: Colors.text2,
+  },
+  clearRowBtn: {
+    alignItems: 'center', paddingVertical: 5,
+    borderWidth: 1, borderColor: 'rgba(220,80,80,0.25)', borderRadius: Radii.md,
+    backgroundColor: 'rgba(220,80,80,0.04)',
+  },
+  clearRowTx: {
+    fontSize: 10, fontWeight: '600', color: 'rgba(200,60,60,0.7)',
   },
   // Footer
   footer: {

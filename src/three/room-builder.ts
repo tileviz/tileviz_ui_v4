@@ -1,7 +1,7 @@
 // three/room-builder.ts — builds room + fixtures. Center FIX: g.position.y = -H/2
 import * as THREE from 'three';
-import { THREE_FT_SCALE } from '../config';
-import { resolveRowMat } from './materials';
+import { THREE_FT_SCALE, KITCHEN_COUNTER_FT } from '../config';
+import { resolveRowMat, resolveRowMatB } from './materials';
 import { RoomType, ZoneRow, Tile } from '../types';
 
 export interface RoomBuildConfig {
@@ -31,14 +31,39 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
   fg.name='fixtures';
   const W=cfg.widthFt*FT,L=cfg.lengthFt*FT,H=cfg.heightFt*FT;
   const tw=(cfg.tileWidthIn/12)*FT,th=(cfg.tileHeightIn/12)*FT;
-  const numRows=Math.max(1,Math.round(cfg.heightFt/(cfg.tileHeightIn/12))),rowH=H/numRows;
   const isParking=cfg.roomType==='parking';
   const rt=cfg.roomType;
 
-  // ── Floor — always tiled from catalog ──
+  // Kitchen tiles start above the counter — matches cabH+ctH in kitchen() fixture function
+  const kitchenCounterY = rt==='kitchen' ? (0.88+0.05) : 0; // scene units
+  const tileableH = H - kitchenCounterY;
+  const tilingFt = cfg.heightFt - (rt==='kitchen' ? KITCHEN_COUNTER_FT : 0);
+  const numRows = Math.max(1, Math.round(tilingFt/(cfg.tileHeightIn/12)));
+  const rowH = tileableH/numRows;
+
+  // ── Floor — tiled from catalog (checker pattern for parking) ──
   const fr=cfg.zoneRows.find(r=>r.wallKey==='floor');
-  const fm=resolveRowMat(fr,cfg.selectedTile,W/tw,L/tw);
-  const floor=new THREE.Mesh(new THREE.PlaneGeometry(W,L),fm);floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;g.add(floor);
+  if(fr?.patternType==='checker'){
+    const numX=Math.max(1,Math.round(W/tw));
+    const numZ=Math.max(1,Math.round(L/tw));
+    const cellW=W/numX, cellL=L/numZ;
+    // Create only 2 shared materials + 1 shared geometry — avoids 300+ draw calls on mobile
+    const geo=new THREE.PlaneGeometry(cellW,cellL);
+    const matBase=resolveRowMat(fr,cfg.selectedTile,1,1);
+    const matAccent=resolveRowMatB(fr,cfg.selectedTile,1,1);
+    for(let xi=0;xi<numX;xi++){
+      for(let zi=0;zi<numZ;zi++){
+        const tile=new THREE.Mesh(geo,(xi+zi)%2===1?matAccent:matBase);
+        tile.rotation.x=-Math.PI/2;
+        tile.position.set(-W/2+xi*cellW+cellW/2,0,-L/2+zi*cellL+cellL/2);
+        tile.receiveShadow=true;
+        g.add(tile);
+      }
+    }
+  }else{
+    const fm=resolveRowMat(fr,cfg.selectedTile,W/tw,L/tw);
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(W,L),fm);floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;g.add(floor);
+  }
 
   if(!isParking){
     const ceil=new THREE.Mesh(new THREE.PlaneGeometry(W,L),new THREE.MeshStandardMaterial({color:0xf8f8f4,roughness:1,transparent:true,opacity:0.1,side:THREE.BackSide}));
@@ -65,14 +90,42 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
      {key:'wall_e',pw:L,rotY:-Math.PI/2,px:W/2,pz:0,rh:L/tw},{key:'wall_w',pw:L,rotY:Math.PI/2,px:-W/2,pz:0,rh:L/tw}
     ].forEach(wd=>{
       if(shouldTileWall(wd.key)){
+        // Below counter: plain painted wall (kitchen only)
+        if(kitchenCounterY>0){
+          const bm=new THREE.Mesh(new THREE.PlaneGeometry(wd.pw,kitchenCounterY),plainWallMat);
+          bm.rotation.y=wd.rotY;bm.position.set(wd.px,kitchenCounterY/2,wd.pz);bm.receiveShadow=true;g.add(bm);
+        }
+        // Tiled rows above counter
         for(let r=0;r<numRows;r++){
-          // Look for per-wall assignment first (wall_n, wall_e, etc.)
-          // then fall back to generic 'walls' key from CatalogSidebar
+          const tileY=kitchenCounterY+rowH*r+rowH/2;
           const zr=cfg.zoneRows.find(z=>z.wallKey===wd.key&&z.rowIndex===r)
                 ??cfg.zoneRows.find(z=>z.wallKey==='walls'&&z.rowIndex===r);
-          const m=resolveRowMat(zr,cfg.selectedTile,wd.rh,Math.max(0.5,rowH/th));
-          const wm=new THREE.Mesh(new THREE.PlaneGeometry(wd.pw,rowH),m);
-          wm.rotation.y=wd.rotY;wm.position.set(wd.px,rowH*r+rowH/2,wd.pz);wm.receiveShadow=true;g.add(wm);
+          const pt=zr?.patternType;
+          if(pt==='pattern1'||pt==='pattern2'){
+            const rg=new THREE.Group();
+            rg.rotation.y=wd.rotY;
+            rg.position.set(wd.px,tileY,wd.pz);
+            const numCols=Math.max(1,Math.round(wd.pw/tw));
+            const colW=wd.pw/numCols;
+            const accentEvery=pt==='pattern1'?3:2;
+            // 2 shared materials + 1 shared geometry per row — avoids N new materials on mobile
+            const colGeo=new THREE.PlaneGeometry(colW,rowH);
+            const repY=Math.max(0.5,rowH/th);
+            const matBase=resolveRowMat(zr,cfg.selectedTile,1,repY);
+            const matAccent=resolveRowMatB(zr,cfg.selectedTile,1,repY);
+            for(let col=0;col<numCols;col++){
+              const isAccent=(col%accentEvery===(accentEvery-1));
+              const cm=new THREE.Mesh(colGeo,isAccent?matAccent:matBase);
+              cm.position.x=-wd.pw/2+col*colW+colW/2;
+              cm.receiveShadow=true;
+              rg.add(cm);
+            }
+            g.add(rg);
+          }else{
+            const m=resolveRowMat(zr,cfg.selectedTile,wd.rh,Math.max(0.5,rowH/th));
+            const wm=new THREE.Mesh(new THREE.PlaneGeometry(wd.pw,rowH),m);
+            wm.rotation.y=wd.rotY;wm.position.set(wd.px,tileY,wd.pz);wm.receiveShadow=true;g.add(wm);
+          }
         }
       } else {
         // Plain painted wall

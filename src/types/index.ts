@@ -46,7 +46,7 @@ export interface Tile {
 }
 
 // ── Zone Design ───────────────────────────────────────────────
-export type TilePattern = 'plain' | 'alternate' | 'checker' | 'block';
+export type TilePattern = 'plain' | 'alternate' | 'checker' | 'block' | 'pattern1' | 'pattern2';
 
 export interface ZoneRow {
   rowIndex:      number;

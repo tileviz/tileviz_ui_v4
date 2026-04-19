@@ -71,6 +71,7 @@ export const ROOM_SIZE_FILTERS: Record<string, { label: string; wIn: number; hIn
 };
 
 export const THREE_FT_SCALE = 0.46; // 1 ft = 0.46 scene units
+export const KITCHEN_COUNTER_FT = 2; // tiles start above the counter (~0.93 scene units = 2ft)
 
 export const PLAN_LABELS: Record<string, string> = {
   starter: 'Starter',

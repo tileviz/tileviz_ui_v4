@@ -176,4 +176,13 @@ export function resolveRowMat(row:any,tile:any,repX:number,repY:number):THREE.Me
   if(uri)return makeImageMat(uri,repX,repY,color,pattern);
   return makeProceduralMat(color,pattern,repX,repY);
 }
+
+export function resolveRowMatB(row:any,tile:any,repX:number,repY:number):THREE.MeshStandardMaterial{
+  const color=row?.tileBColor??tile?.color??'#c8b89a';
+  const pattern=tile?.pattern??'solid';
+  const uri=row?.tileBImageUri??tile?.imageUri;
+  if(uri)return makeImageMat(uri,repX,repY,color,pattern);
+  return makeProceduralMat(color,pattern,repX,repY);
+}
+
 export {texCache,imgTexCache};

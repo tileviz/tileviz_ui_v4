@@ -10,7 +10,7 @@ import { useLayout } from '../hooks/useLayout';
 import { RoomType } from '../types';
 import { ThreeCanvas, RoomBuildConfig, CaptureScreenshotFn } from '../three/ThreeCanvas';
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
-import { ROOM_TYPES, TILE_SIZES } from '../config';
+import { ROOM_TYPES, TILE_SIZES, KITCHEN_COUNTER_FT } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
 import { TutorialOverlay, shouldShowTutorial } from '../components/TutorialOverlay';
 import { useTutorial } from '../tutorial/TutorialContext';
@@ -211,7 +211,8 @@ export function VisualizerScreen() {
     ? [parseFloat(customW) || 12, parseFloat(customH) || 12]
     : selectedTileSize.split('x').map(Number);
   const { tilesNeeded, totalSqFt } = calcTileStats(dimensions.width, dimensions.length, dimensions.height, tw, th);
-  const rowCount = Math.ceil(dimensions.height / (th / 12));
+  const counterFt = roomType === 'kitchen' ? KITCHEN_COUNTER_FT : 0;
+  const rowCount = Math.ceil((dimensions.height - counterFt) / (th / 12));
   const roomLabel = roomType.charAt(0).toUpperCase() + roomType.slice(1);
 
   const liveConfig = useMemo<RoomBuildConfig>(() => ({

@@ -86,35 +86,52 @@ export function CatalogScreen() {
   // ── Tile click: assign to focused zone row OR just select ──
   function handleTilePress(tile: Tile) {
     if (assigningKey) {
-      // Assign tile to the focused zone row
-      const [wallKey, ri] = assigningKey.split(':');
-      const rowIndex = parseInt(ri);
-      const rowLabel = wallKey === 'floor' ? 'Floor Tile' : `Wall Row ${rowIndex + 1}`;
-      const newRow = {
-        rowIndex, wallKey,
-        tileId: tile.id, tileName: tile.name,
-        color: tile.color, tileImageUri: tile.imageUri,
-        tileWidthIn: tile.widthIn, tileHeightIn: tile.heightIn,
-      };
-      setZoneRows(
-        zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
-          ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? newRow : r)
-          : [...zoneRows, newRow]
-      );
-      // Update global tile size to match this tile's actual size
-      const { setTileSize } = useAppStore.getState();
-      setTileSize(`${tile.widthIn}x${tile.heightIn}`);
+      const parts = assigningKey.split(':');
+      const wallKey = parts[0];
+      const rowIndex = parseInt(parts[1]);
+      const slot = parts[2]; // 'accent' | undefined
+      const rowLabel = wallKey === 'floor' ? 'Floor Tile' : `Row ${rowIndex + 1}`;
 
-      // Show confirmation toast
-      showAlert('✅ Tile Assigned', `"${tile.name}" → ${rowLabel}`);
-      // Clear assigning mode
+      if (slot === 'accent') {
+        // Assign accent (B) tile — preserve existing base tile fields
+        const existing = zoneRows.find(r => r.wallKey === wallKey && r.rowIndex === rowIndex);
+        const updated = {
+          rowIndex, wallKey,
+          ...(existing ?? {}),
+          tileBId: tile.id, tileBName: tile.name,
+          tileBColor: tile.color, tileBImageUri: tile.imageUri,
+        };
+        setZoneRows(
+          zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
+            ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? updated : r)
+            : [...zoneRows, updated]
+        );
+        showAlert('✅ Accent Assigned', `"${tile.name}" → ${rowLabel} accent`);
+      } else {
+        // Assign base tile — preserve accent fields if they exist
+        const existing = zoneRows.find(r => r.wallKey === wallKey && r.rowIndex === rowIndex);
+        const newRow = {
+          rowIndex, wallKey,
+          ...(existing ?? {}),
+          tileId: tile.id, tileName: tile.name,
+          color: tile.color, tileImageUri: tile.imageUri,
+          tileWidthIn: tile.widthIn, tileHeightIn: tile.heightIn,
+        };
+        setZoneRows(
+          zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
+            ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? newRow : r)
+            : [...zoneRows, newRow]
+        );
+        const { setTileSize } = useAppStore.getState();
+        setTileSize(`${tile.widthIn}x${tile.heightIn}`);
+        showAlert('✅ Tile Assigned', `"${tile.name}" → ${rowLabel}`);
+      }
+
       setAssigningKey(null);
 
-      // On mobile, auto-reopen Zone Arena so user can pick next row
+      // On mobile, auto-reopen Zone Arena so user can pick next slot
       if (isPhone) {
-        setTimeout(() => {
-          setSidebarOpen(true);
-        }, 600);
+        setTimeout(() => { setSidebarOpen(true); }, 600);
       }
       return;
     }

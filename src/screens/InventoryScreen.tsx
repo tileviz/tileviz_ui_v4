@@ -6,8 +6,11 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, useWindowDimensions, ActivityIndicator, RefreshControl,
+  StyleSheet, useWindowDimensions, ActivityIndicator, RefreshControl, Image,
 } from 'react-native';
+import { loadThumbnail, deleteThumbnail } from '../utils/thumbnail';
+import { setPendingCaptureId } from '../utils/pendingCapture';
+import { ThumbnailGenerator } from '../components/ThumbnailGenerator';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { useAppStore } from '../store/app.store';
 import { useAuthStore } from '../store/auth.store';
@@ -15,7 +18,7 @@ import { useCatalogStore } from '../store/catalog.store';
 import { InventoryItem, SavedDesign } from '../types';
 import { ROOM_EMOJIS, ROOM_BG, formatDate } from '../utils/format';
 import { getInventory, deleteInventory } from '../api';
-import { showConfirm, showAlert, showAlertWithButtons } from '../utils/alert';
+import { showConfirm, showAlert, showAlertWithButtons, showError } from '../utils/alert';
 import { Trie } from '../utils/trie';
 import { SearchBar } from '../components/SearchBar';
 
@@ -44,6 +47,8 @@ export function InventoryScreen() {
   const [roomFilter, setRoomFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [thumbQueue, setThumbQueue] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTrie] = useState(() => new Trie());
@@ -62,6 +67,15 @@ export function InventoryScreen() {
     try {
       const items = await getInventory();
       setInventoryItems(items);
+      // Load any already-generated local thumbnails
+      const thumbMap: Record<string, string> = {};
+      await Promise.all(items.map(async (item: InventoryItem) => {
+        const uri = await loadThumbnail(item.id);
+        if (uri) thumbMap[item.id] = uri;
+      }));
+      setThumbnails(thumbMap);
+      // Queue items that still need a thumbnail for background rendering
+      setThumbQueue(items.filter(i => !thumbMap[i.id]));
     } catch (error: any) {
       console.error('Failed to load inventory:', error);
       showAlert('Error', 'Failed to load inventory items. Please try again.');
@@ -117,6 +131,9 @@ export function InventoryScreen() {
       selectedTileColor: item.selectedTileColor || item.tileColor,
     };
 
+    // Flag VisualizerScreen to auto-capture thumbnail once canvas is ready
+    if (!thumbnails[item.id]) setPendingCaptureId(item.id);
+
     // Use unified load design method with callback
     loadDesign(design, setSelectedTile, tiles, () => {
       showAlert('Design Loaded', `"${item.name}" loaded into Visualizer with all saved features.`);
@@ -159,7 +176,7 @@ export function InventoryScreen() {
           showAlert('Deleted', `"${item.name}" has been removed from inventory.`);
         } catch (error: any) {
           console.error('Delete error:', error);
-          showAlert('Error', error.message || 'Failed to delete inventory item.');
+          showError('Could not delete item', error);
         }
       },
       () => {
@@ -175,6 +192,12 @@ export function InventoryScreen() {
     return role || '';
   };
 
+  // Called by ThumbnailGenerator each time it finishes a thumbnail — must be
+  // declared BEFORE any early return to satisfy the Rules of Hooks
+  const handleThumbnailCaptured = useCallback((id: string, uri: string) => {
+    setThumbnails(prev => ({ ...prev, [id]: uri }));
+  }, []);
+
   // Show loading state
   if (loading) {
     return (
@@ -187,6 +210,11 @@ export function InventoryScreen() {
 
   return (
     <View style={s.container}>
+      {/* Background thumbnail renderer — offscreen, processes queue silently */}
+      {thumbQueue.length > 0 && (
+        <ThumbnailGenerator queue={thumbQueue} onCaptured={handleThumbnailCaptured} />
+      )}
+
       {/* Header */}
       <View style={s.pageHeader}>
         <View style={{ flex: 1 }}>
@@ -291,9 +319,15 @@ export function InventoryScreen() {
               >
                 {/* Thumbnail */}
                 <View style={[s.cardThumb, { backgroundColor: ROOM_BG[item.roomType] ?? '#f8f6f2' }]}>
-                  <Text style={{ fontSize: 36 }}>{ROOM_EMOJIS[item.roomType] ?? '🏠'}</Text>
-                  {/* Tile color swatch */}
-                  {item.tileColor && (
+                  {thumbnails[item.id] ? (
+                    <Image source={{ uri: thumbnails[item.id] }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                  ) : item.tileImageUri ? (
+                    <Image source={{ uri: item.tileImageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                  ) : (
+                    <Text style={{ fontSize: 36 }}>{ROOM_EMOJIS[item.roomType] ?? '🏠'}</Text>
+                  )}
+                  {/* Tile color swatch — only when no image */}
+                  {!thumbnails[item.id] && !item.tileImageUri && item.tileColor && (
                     <View style={[s.tileSwatch, { backgroundColor: item.tileColor }]} />
                   )}
                   {/* Status badge */}

@@ -114,7 +114,7 @@ export function IntroScreen({ onContinue }: Props) {
           {/* Description */}
           <Text style={[styles.description, { fontSize: isSmall ? 13 : 15 }]}>
             Transform your spaces with augmented reality. Visualize tiles in 3D rooms, explore catalogs, 
-            and design your dream interiors — all in real time.
+            and design your dream interiors all in real time.
           </Text>
 
           {/* Feature pills */}

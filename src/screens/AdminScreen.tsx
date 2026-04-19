@@ -7,7 +7,7 @@ import {FormInput} from '../components/FormInput';
 import {RoleBadge} from '../components/RoleBadge';
 import {getAdminShops,createAdminShop,getAdminUsers,createAdminUser,deactivateUser,deleteUserPermanent} from '../api/admin';
 import {UserRole} from '../types';
-import {showConfirm,showAlert} from '../utils/alert';
+import {showConfirm,showAlert,showError} from '../utils/alert';
 
 type AdminTab='shops'|'users';
 
@@ -44,7 +44,7 @@ export function AdminScreen(){
         }catch(e:any){
           console.error('Deactivation error:', e);
           console.error('Error response:', e?.response?.data);
-          showAlert('Error',e?.response?.data?.message||e?.message||'Failed to deactivate user');
+          showError('Could not deactivate user', e);
         }
       },
       ()=>{
@@ -67,7 +67,7 @@ export function AdminScreen(){
         }catch(e:any){
           console.error('Delete error:', e);
           console.error('Error response:', e?.response?.data);
-          showAlert('Error',e?.response?.data?.message||e?.message||'Failed to delete user');
+          showError('Could not delete user', e);
         }
       },
       ()=>{

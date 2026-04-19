@@ -12,8 +12,12 @@ import { ThreeCanvas, RoomBuildConfig, CaptureScreenshotFn } from '../three/Thre
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
+import { TutorialOverlay, shouldShowTutorial } from '../components/TutorialOverlay';
+import { useTutorial } from '../tutorial/TutorialContext';
 import { showAlert } from '../utils/alert';
 import { shareDesignPdf } from '../utils/sharePdf';
+import { consumePendingCaptureId } from '../utils/pendingCapture';
+import { saveThumbnail } from '../utils/thumbnail';
 
 // 35 curated wall colors — common Indian home paint palette
 const WALL_COLORS: Array<{ name: string; hex: string }> = [
@@ -180,9 +184,25 @@ export function VisualizerScreen() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const captureRef = useRef<CaptureScreenshotFn | null>(null);
+  const { registerTarget, unregisterTarget, completeStep } = useTutorial();
+  const saveDesignRef = useRef<any>(null);
+  useEffect(() => {
+    registerTarget('save_design', saveDesignRef);
+    return () => unregisterTarget('save_design');
+  }, []);
+  const [saveScreenshot, setSaveScreenshot] = useState<string | null>(null);
+  const [infoBarBottom, setInfoBarBottom] = useState(52);
+  const [showTutorial, setShowTutorial] = useState(false);
   const handleCaptureReady = useCallback((fn: CaptureScreenshotFn) => {
     console.log('[TileViz] Capture function registered');
     captureRef.current = fn;
+    // Auto-capture thumbnail for inventory items loaded into the Visualizer
+    const pendingId = consumePendingCaptureId();
+    if (pendingId) {
+      setTimeout(() => {
+        fn().then(uri => { if (uri) saveThumbnail(pendingId, uri).catch(() => {}); }).catch(() => {});
+      }, 2500); // wait for 3D scene to fully render
+    }
   }, []);
   const [customW, setCustomW] = useState('12');
   const [customH, setCustomH] = useState('12');
@@ -206,9 +226,21 @@ export function VisualizerScreen() {
     wallColor,
   }), [roomType, dimensions.width, dimensions.length, dimensions.height, tw, th, selectedTile, zoneRows, wallColor]);
 
-  function handleSave() {
-    setShowSaveModal(true);
+  // Show tutorial once on first launch (slight delay so canvas loads first)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      shouldShowTutorial().then(show => { if (show) setShowTutorial(true); });
+    }, 1800);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function handleSave() {
     setShowSettings(false);
+    // Capture screenshot in background before opening modal
+    if (captureRef.current) {
+      captureRef.current().then(uri => setSaveScreenshot(uri)).catch(() => {});
+    }
+    setShowSaveModal(true);
   }
 
   function handleDesignSaved() {
@@ -272,10 +304,13 @@ export function VisualizerScreen() {
       <View style={{ flex: 1, backgroundColor: Colors.surface }}>
         {/* Full-screen 3D Canvas */}
         <View style={{ flex: 1, backgroundColor: '#e8e4dc', overflow: 'hidden' }}>
-          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} />
+          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} controlsTopOffset={infoBarBottom + 6} />
 
            {/* Compact floating info bar */}
-          <View style={s.mobileInfoBar}>
+          <View
+            style={s.mobileInfoBar}
+            onLayout={e => setInfoBarBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+          >
             <Text style={s.mobileInfoText}>{roomLabel}</Text>
             <View style={s.mobileInfoDivider} />
             <Text style={s.mobileInfoText}>{dimensions.length}×{dimensions.width}×{dimensions.height} ft</Text>
@@ -309,6 +344,17 @@ export function VisualizerScreen() {
             activeOpacity={0.8}
           >
             <Text style={{ fontSize: 16 }}>📤</Text>
+          </TouchableOpacity>
+
+          {/* Save FAB — tutorial target */}
+          <TouchableOpacity
+            ref={saveDesignRef}
+            collapsable={false}
+            onPress={() => { handleSave(); completeStep('save_design'); }}
+            style={s.settingsFab}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 16 }}>💾</Text>
           </TouchableOpacity>
 
           {/* Settings FAB */}
@@ -348,7 +394,11 @@ export function VisualizerScreen() {
           onSuccess={handleDesignSaved}
           designData={getDesignData()}
           defaultName={defaultName}
+          screenshotDataUri={saveScreenshot}
         />
+
+        {/* First-time tutorial overlay */}
+        {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
       </View>
     );
   }
@@ -399,6 +449,16 @@ export function VisualizerScreen() {
             ))}
             <View style={{ flexDirection: 'row', gap: 8, marginLeft: 8 }}>
               <Button label="📤 Share" onPress={handleShare} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
+              <View ref={saveDesignRef} collapsable={false}>
+                <Button
+                  label="💾 Save"
+                  onPress={() => { handleSave(); completeStep('save_design'); }}
+                  variant="outline"
+                  size="sm"
+                  style={{ borderColor: 'rgba(255,255,255,0.3)' }}
+                  textStyle={{ color: '#E0E3F5' }}
+                />
+              </View>
             </View>
           </ScrollView>
         </View>
@@ -411,7 +471,11 @@ export function VisualizerScreen() {
         onSuccess={handleDesignSaved}
         designData={getDesignData()}
         defaultName={defaultName}
+        screenshotDataUri={saveScreenshot}
       />
+
+      {/* First-time tutorial overlay */}
+      {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
     </View>
   );
 }

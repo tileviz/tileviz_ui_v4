@@ -49,7 +49,7 @@ export default function App() {
           <GlobalConfirmProvider>
             <AppNavigator />
           </GlobalConfirmProvider>
-          <Toast config={toastConfig} topOffset={50} visibilityTime={3000} />
+          <Toast config={toastConfig} topOffset={92} visibilityTime={3000} />
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

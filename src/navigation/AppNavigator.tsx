@@ -6,7 +6,9 @@
 //  Responsive: Phone shows bottom tab bar, Desktop/Tablet shows top nav.
 // ============================================================
 import React, { useEffect, useCallback, useRef, useState } from 'react';
-import { View, Text, ActivityIndicator, Platform } from 'react-native';
+import { View, Platform } from 'react-native';
+import { TutorialProvider } from '../tutorial/TutorialContext';
+import { TutorialSpotlight } from '../tutorial/TutorialSpotlight';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAuthStore } from '../store/auth.store';
@@ -14,6 +16,7 @@ import { useAppStore } from '../store/app.store';
 import { useLayout } from '../hooks/useLayout';
 import { getAccessToken, authBus } from '../api/client';
 import { apiGetMe, apiLogout, toAppUser } from '../auth/auth.api';
+import { SplashScreen }       from '../screens/SplashScreen';
 import { IntroScreen }        from '../screens/IntroScreen';
 import { AuthScreen }         from '../screens/AuthScreen';
 import { VisualizerScreen }   from '../screens/VisualizerScreen';
@@ -32,6 +35,12 @@ export function AppNavigator() {
   const { activePage, setActivePage } = useAppStore();
   const { isPhone, showBottomTabs } = useLayout();
   const bootDone = useRef(false);
+
+  // ── Splash animation gate ────────────────────────────────────
+  // Both flags must be true before we move past the splash screen:
+  //   splashDone  — animation finished
+  //   isReady     — session restore finished
+  const [splashDone, setSplashDone] = useState(false);
 
   // ── Intro → Auth flow state ─────────────────────────────────
   const [showIntro, setShowIntro] = useState(true);
@@ -132,19 +141,14 @@ export function AppNavigator() {
     setShowIntro(true);
   }, []);
 
-  // ── Loading splash ───────────────────────────────────────────
+  // ── Animated splash (plays its full animation first) ────────
+  if (!splashDone) {
+    return <SplashScreen onFinish={() => setSplashDone(true)} />;
+  }
+
+  // ── After splash: wait for boot if still running (rare / slow network) ──
   if (!isReady) {
-    console.log('[TileViz] Showing loading splash');
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-        {/* Tile grid logo placeholder */}
-        <View style={{ width: 48, height: 48, backgroundColor: Colors.accent, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ fontSize: 24 }}>⊞</Text>
-        </View>
-        <ActivityIndicator size="large" color={Colors.accent} />
-        <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Loading TileVIZ…</Text>
-      </View>
-    );
+    return <View style={{ flex: 1, backgroundColor: '#13102a' }} />;
   }
 
   // ── Intro screen (shown first) ─────────────────────────────
@@ -175,12 +179,16 @@ export function AppNavigator() {
   const headerHeight = isPhone ? 52 : 62;
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.surface }}>
-      <AppHeader onLogout={handleLogout} />
-      <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
-        {renderPage()}
+    <TutorialProvider>
+      <View style={{ flex: 1, backgroundColor: Colors.surface }}>
+        <AppHeader onLogout={handleLogout} />
+        <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
+          {renderPage()}
+        </View>
+        {showBottomTabs && <BottomTabBar />}
+        {/* Tutorial spotlight — renders on top of everything */}
+        <TutorialSpotlight />
       </View>
-      {showBottomTabs && <BottomTabBar />}
-    </View>
+    </TutorialProvider>
   );
 }

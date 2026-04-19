@@ -3,13 +3,14 @@
 //  Shown on phone screens (<600px). Replaces top header tabs.
 // ============================================================
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAppStore } from '../store/app.store';
 import { useAuthStore } from '../store/auth.store';
 import { NavPage, UserRole } from '../types';
+import { useTutorial } from '../tutorial/TutorialContext';
 
 interface TabItem {
   key: NavPage;
@@ -30,10 +31,29 @@ const MORE_TABS: TabItem[] = [
   { key: 'admin',     icon: '◉',  label: 'Admin',     roles: ['admin'] },
 ];
 
+// Tutorial target key map for nav tabs
+const TAB_TUTORIAL_KEYS: Partial<Record<NavPage, string>> = {
+  catalog:    'nav_catalog',
+  visualizer: 'nav_visualizer',
+};
+
+function TutorialTabRef({ navKey, children }: { navKey: NavPage; children: (ref: React.RefObject<any>) => React.ReactNode }) {
+  const tutKey = TAB_TUTORIAL_KEYS[navKey];
+  const { registerTarget, unregisterTarget } = useTutorial();
+  const ref = useRef<any>(null);
+  useEffect(() => {
+    if (!tutKey) return;
+    registerTarget(tutKey, ref);
+    return () => unregisterTarget(tutKey);
+  }, [tutKey]);
+  return <>{children(tutKey ? ref : { current: null })}</>;
+}
+
 export function BottomTabBar() {
   const insets = useSafeAreaInsets();
   const { activePage, setActivePage } = useAppStore();
   const { user } = useAuthStore();
+  const { completeStep } = useTutorial();
 
   // Filter tabs by user role
   const visibleTabs = PRIMARY_TABS.filter(
@@ -54,21 +74,30 @@ export function BottomTabBar() {
     <View style={[s.container, { paddingBottom: Math.max(insets.bottom, 6) }]}>
       {tabs.map(tab => {
         const isActive = activePage === tab.key;
+        const tutKey = TAB_TUTORIAL_KEYS[tab.key];
         return (
-          <TouchableOpacity
-            key={tab.key}
-            onPress={() => setActivePage(tab.key)}
-            style={s.tab}
-            activeOpacity={0.7}
-          >
-            <View style={[s.iconWrap, isActive && s.iconWrapActive]}>
-              <Text style={[s.icon, isActive && s.iconActive]}>{tab.icon}</Text>
-            </View>
-            <Text style={[s.label, isActive && s.labelActive]} numberOfLines={1}>
-              {tab.label}
-            </Text>
-            {isActive && <View style={s.indicator} />}
-          </TouchableOpacity>
+          <TutorialTabRef key={tab.key} navKey={tab.key}>
+            {(tabRef) => (
+              <TouchableOpacity
+                ref={tabRef}
+                collapsable={false}
+                onPress={() => {
+                  setActivePage(tab.key);
+                  if (tutKey) completeStep(tutKey);
+                }}
+                style={s.tab}
+                activeOpacity={0.7}
+              >
+                <View style={[s.iconWrap, isActive && s.iconWrapActive]}>
+                  <Text style={[s.icon, isActive && s.iconActive]}>{tab.icon}</Text>
+                </View>
+                <Text style={[s.label, isActive && s.labelActive]} numberOfLines={1}>
+                  {tab.label}
+                </Text>
+                {isActive && <View style={s.indicator} />}
+              </TouchableOpacity>
+            )}
+          </TutorialTabRef>
         );
       })}
     </View>

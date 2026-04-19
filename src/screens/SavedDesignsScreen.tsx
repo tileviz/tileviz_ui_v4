@@ -2,8 +2,9 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, useWindowDimensions,
+  ActivityIndicator, RefreshControl, useWindowDimensions, Image,
 } from 'react-native';
+import { loadThumbnail, deleteThumbnail } from '../utils/thumbnail';
 import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
 import { useAppStore } from '../store/app.store';
@@ -12,7 +13,7 @@ import { getRooms, deleteRoom } from '../api/rooms';
 import { getTiles } from '../api/tiles';
 import { SavedDesign } from '../types';
 import { ROOM_EMOJIS, ROOM_BG, formatDate } from '../utils/format';
-import { showConfirm, showAlert } from '../utils/alert';
+import { showConfirm, showAlert, showError } from '../utils/alert';
 import { Trie } from '../utils/trie';
 import { SearchBar } from '../components/SearchBar';
 
@@ -21,6 +22,7 @@ export function SavedDesignsScreen() {
   const { loadDesign } = useAppStore();
   const { setSelectedTile, tiles, setTiles } = useCatalogStore();
   const [designs, setDesigns] = useState<SavedDesign[]>([]);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,6 +45,13 @@ export function SavedDesignsScreen() {
         tiles.length === 0 ? getTiles().then(t => setTiles(t)) : Promise.resolve(),
       ]);
       setDesigns(designsData);
+      // Load local thumbnails for each design
+      const thumbMap: Record<string, string> = {};
+      await Promise.all(designsData.map(async d => {
+        const uri = await loadThumbnail(d.id);
+        if (uri) thumbMap[d.id] = uri;
+      }));
+      setThumbnails(thumbMap);
     } catch (e: any) {
       console.error('rooms:', e?.message);
       showAlert('Error', 'Failed to load saved designs. Please try again.');
@@ -98,11 +107,13 @@ export function SavedDesignsScreen() {
       async () => {
         try {
           await deleteRoom(id);
+          deleteThumbnail(id).catch(() => {});
           setDesigns(d => d.filter(x => x.id !== id));
+          setThumbnails(t => { const n = { ...t }; delete n[id]; return n; });
           showAlert('Deleted', `"${name}" has been removed.`);
         } catch (e: any) {
           console.error('Delete error:', e);
-          showAlert('Error', e?.response?.data?.message ?? 'Delete failed');
+          showError('Could not delete design', e);
         }
       }
     );
@@ -203,7 +214,11 @@ export function SavedDesignsScreen() {
             <View style={[s.card, { flex: 1, maxWidth: numCols > 1 ? `${100 / numCols}%` as any : '100%' }]}>
               <TouchableOpacity onPress={() => handleLoad(item)} activeOpacity={0.85}>
                 <View style={[s.thumb, { backgroundColor: ROOM_BG[item.roomType] ?? '#f8f6f2' }]}>
-                  <Text style={{ fontSize: 40 }}>{ROOM_EMOJIS[item.roomType] ?? '🏠'}</Text>
+                  {thumbnails[item.id] ? (
+                    <Image source={{ uri: thumbnails[item.id] }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                  ) : (
+                    <Text style={{ fontSize: 40 }}>{ROOM_EMOJIS[item.roomType] ?? '🏠'}</Text>
+                  )}
                 </View>
                 <View style={{ padding: 10 }}>
                   <Text style={{ fontSize: 13, fontWeight: '500', color: Colors.text1, marginBottom: 3 }} numberOfLines={1}>

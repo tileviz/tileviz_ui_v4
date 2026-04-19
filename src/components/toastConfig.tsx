@@ -1,196 +1,94 @@
-// ============================================================
-//  components/toastConfig.tsx — Premium custom toast layout
-//  Glassmorphic, non-intrusive notification toasts
-// ============================================================
-
+// components/toastConfig.tsx — Compact right-side notification pills
+// Appear below the navbar, right-aligned, auto-dismiss like Android notifications.
 import React from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
-import { BaseToast, ErrorToast, BaseToastProps } from 'react-native-toast-message';
-import { Colors, Radii, Shadows } from '../config/theme';
+import { View, Text, StyleSheet, Platform, Dimensions } from 'react-native';
+import { BaseToastProps } from 'react-native-toast-message';
 
-// ── Custom Toast Components ──────────────────────────────────
+const PILL_W = Math.min(Dimensions.get('window').width * 0.78, 320);
 
-function SuccessToast(props: BaseToastProps) {
-  return (
-    <View style={[st.container, st.successBg]}>
-      <View style={st.iconCircle}>
-        <Text style={st.iconText}>✓</Text>
-      </View>
-      <View style={st.content}>
-        <Text style={st.title} numberOfLines={1}>{props.text1}</Text>
-        {props.text2 ? <Text style={st.message} numberOfLines={2}>{props.text2}</Text> : null}
-      </View>
-      <View style={st.progressBar}>
-        <View style={[st.progressFill, st.successProgress]} />
-      </View>
-    </View>
-  );
-}
-
-function ErrorToastCustom(props: BaseToastProps) {
-  return (
-    <View style={[st.container, st.errorBg]}>
-      <View style={[st.iconCircle, st.errorIconCircle]}>
-        <Text style={st.iconText}>✕</Text>
-      </View>
-      <View style={st.content}>
-        <Text style={st.title} numberOfLines={1}>{props.text1}</Text>
-        {props.text2 ? <Text style={st.message} numberOfLines={2}>{props.text2}</Text> : null}
-      </View>
-      <View style={st.progressBar}>
-        <View style={[st.progressFill, st.errorProgress]} />
-      </View>
-    </View>
-  );
-}
-
-function InfoToast(props: BaseToastProps) {
-  return (
-    <View style={[st.container, st.infoBg]}>
-      <View style={[st.iconCircle, st.infoIconCircle]}>
-        <Text style={st.iconText}>i</Text>
-      </View>
-      <View style={st.content}>
-        <Text style={st.title} numberOfLines={1}>{props.text1}</Text>
-        {props.text2 ? <Text style={st.message} numberOfLines={2}>{props.text2}</Text> : null}
-      </View>
-      <View style={st.progressBar}>
-        <View style={[st.progressFill, st.infoProgress]} />
-      </View>
-    </View>
-  );
-}
-
-function WarningToast(props: BaseToastProps) {
-  return (
-    <View style={[st.container, st.warningBg]}>
-      <View style={[st.iconCircle, st.warningIconCircle]}>
-        <Text style={st.iconText}>!</Text>
-      </View>
-      <View style={st.content}>
-        <Text style={st.title} numberOfLines={1}>{props.text1}</Text>
-        {props.text2 ? <Text style={st.message} numberOfLines={2}>{props.text2}</Text> : null}
-      </View>
-      <View style={st.progressBar}>
-        <View style={[st.progressFill, st.warningProgress]} />
-      </View>
-    </View>
-  );
-}
-
-// ── Export config ────────────────────────────────────────────
-
-export const toastConfig = {
-  success: (props: BaseToastProps) => <SuccessToast {...props} />,
-  error: (props: BaseToastProps) => <ErrorToastCustom {...props} />,
-  info: (props: BaseToastProps) => <InfoToast {...props} />,
-  warning: (props: BaseToastProps) => <WarningToast {...props} />,
+// ── Accent colours per type ──────────────────────────────────
+const TYPE = {
+  success: { accent: '#22c55e', bg: '#0a1f12', icon: '✓', iconBg: 'rgba(34,197,94,0.18)'  },
+  error:   { accent: '#ef4444', bg: '#1f0a0a', icon: '✕', iconBg: 'rgba(239,68,68,0.18)'  },
+  info:    { accent: '#3b82f6', bg: '#0a1020', icon: 'i', iconBg: 'rgba(59,130,246,0.18)' },
+  warning: { accent: '#f59e0b', bg: '#1f170a', icon: '!', iconBg: 'rgba(245,158,11,0.18)' },
 };
 
-// ── Styles ───────────────────────────────────────────────────
+function Pill({ props, type }: { props: BaseToastProps; type: keyof typeof TYPE }) {
+  const t = TYPE[type];
+  return (
+    <View style={[st.pill, { backgroundColor: t.bg, borderColor: t.accent + '40', width: PILL_W }]}>
+      {/* Left accent stripe */}
+      <View style={[st.stripe, { backgroundColor: t.accent }]} />
+
+      {/* Icon badge */}
+      <View style={[st.iconBadge, { backgroundColor: t.iconBg }]}>
+        <Text style={[st.iconText, { color: t.accent }]}>{t.icon}</Text>
+      </View>
+
+      {/* Text */}
+      <View style={st.textWrap}>
+        <Text style={st.title} numberOfLines={1}>{props.text1}</Text>
+        {props.text2 ? (
+          <Text style={st.body} numberOfLines={2}>{props.text2}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+export const toastConfig = {
+  success: (p: BaseToastProps) => <Pill props={p} type="success" />,
+  error:   (p: BaseToastProps) => <Pill props={p} type="error"   />,
+  info:    (p: BaseToastProps) => <Pill props={p} type="info"    />,
+  warning: (p: BaseToastProps) => <Pill props={p} type="warning" />,
+};
 
 const st = StyleSheet.create({
-  container: {
-    width: '92%',
-    minHeight: 56,
-    borderRadius: 14,
+  pill: {
+    alignSelf: 'flex-end',          // right-align inside the toast container
+    marginRight: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
     overflow: 'hidden',
+    minHeight: 52,
     ...(Platform.OS === 'web'
-      ? { boxShadow: '0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1)' } as any
-      : {
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.18,
-          shadowRadius: 32,
-          elevation: 12,
-        }),
+      ? { boxShadow: '0 4px 20px rgba(0,0,0,0.3)' } as any
+      : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 10 }),
   },
-  successBg: {
-    backgroundColor: '#0d1f15',
-    borderWidth: 1,
-    borderColor: 'rgba(76, 175, 116, 0.3)',
+  stripe: {
+    width: 4,
+    alignSelf: 'stretch',
   },
-  errorBg: {
-    backgroundColor: '#1f0d0d',
-    borderWidth: 1,
-    borderColor: 'rgba(224, 82, 82, 0.3)',
-  },
-  infoBg: {
-    backgroundColor: '#0d141f',
-    borderWidth: 1,
-    borderColor: 'rgba(74, 127, 212, 0.3)',
-  },
-  warningBg: {
-    backgroundColor: '#1f1a0d',
-    borderWidth: 1,
-    borderColor: 'rgba(200, 169, 110, 0.3)',
-  },
-  iconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(76, 175, 116, 0.2)',
+  iconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-  },
-  errorIconCircle: {
-    backgroundColor: 'rgba(224, 82, 82, 0.2)',
-  },
-  infoIconCircle: {
-    backgroundColor: 'rgba(74, 127, 212, 0.2)',
-  },
-  warningIconCircle: {
-    backgroundColor: 'rgba(200, 169, 110, 0.2)',
+    marginHorizontal: 10,
   },
   iconText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
   },
-  content: {
+  textWrap: {
     flex: 1,
+    paddingRight: 12,
+    paddingVertical: 10,
   },
   title: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 0.2,
+    color: '#f0f0f0',
+    letterSpacing: 0.1,
   },
-  message: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.7)',
+  body: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.62)',
     marginTop: 2,
-    lineHeight: 16,
-  },
-  progressBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  progressFill: {
-    height: '100%',
-    width: '100%',
-    borderRadius: 2,
-  },
-  successProgress: {
-    backgroundColor: '#4caf74',
-  },
-  errorProgress: {
-    backgroundColor: '#e05252',
-  },
-  infoProgress: {
-    backgroundColor: '#4a7fd4',
-  },
-  warningProgress: {
-    backgroundColor: '#c8a96e',
+    lineHeight: 15,
   },
 });

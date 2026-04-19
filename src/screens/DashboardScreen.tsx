@@ -8,7 +8,7 @@ import {Button} from '../components/Button';
 import {useAuthStore} from '../store/auth.store';
 import {getAdminStats,getAdminShops,getAdminUsers,patchAdminUser,getMyShop,getMyShopSalesPersons,getCatalogRequests,reviewCatalogRequest} from '../api/admin';
 import {UserRole} from '../types';
-import {showAlert} from '../utils/alert';
+import {showAlert,showError} from '../utils/alert';
 
 const PLAN_STYLE:Record<string,{bg:string;text:string;border:string}>={
   pro:       {bg:'#fdf9f2',text:Colors.gold,    border:Colors.gold   },
@@ -56,7 +56,7 @@ export function DashboardScreen(){
 
   async function handleToggleUser(id:string,isActive:boolean){
     try{await patchAdminUser(id,{isActive:!isActive});setUsers(prev=>prev.map(u=>u._id===id?{...u,isActive:!isActive}:u));}
-    catch(e:any){showAlert('Error',e?.response?.data?.message??'Failed');}
+    catch(e:any){showError('Could not update user', e);}
   }
 
   async function handleReviewRequest(id:string,status:'approved'|'rejected'){
@@ -66,7 +66,7 @@ export function DashboardScreen(){
       setStats((prev:any)=>({...prev,pendingCatalogRequests:(prev?.pendingCatalogRequests??1)-1}));
       showAlert('Done',`Request ${status}.`);
     }catch(e:any){
-      showAlert('Error',e?.response?.data?.message??'Failed');
+      showError('Could not process request', e);
     }
   }
 

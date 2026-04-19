@@ -12,6 +12,7 @@ import { Colors, Radii, Shadows } from '../config/theme';
 import { saveRoom } from '../api/rooms';
 import { showAlert } from '../utils/alert';
 import { RoomType } from '../types';
+import { saveThumbnail } from '../utils/thumbnail';
 
 interface SaveDesignPayload {
   name: string;
@@ -33,9 +34,10 @@ interface Props {
   onSuccess: () => void;
   designData: Omit<SaveDesignPayload, 'name'>;
   defaultName?: string;
+  screenshotDataUri?: string | null;
 }
 
-export function SaveDesignModal({ visible, onClose, onSuccess, designData, defaultName }: Props) {
+export function SaveDesignModal({ visible, onClose, onSuccess, designData, defaultName, screenshotDataUri }: Props) {
   const [designName, setDesignName] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
@@ -61,7 +63,12 @@ export function SaveDesignModal({ visible, onClose, onSuccess, designData, defau
         name: finalName,
       };
 
-      await saveRoom(payload);
+      const saved = await saveRoom(payload);
+
+      // Persist screenshot thumbnail locally keyed by design ID
+      if (screenshotDataUri && saved?.id) {
+        saveThumbnail(saved.id, screenshotDataUri).catch(() => {});
+      }
 
       // Reset form and close modal first
       resetForm();

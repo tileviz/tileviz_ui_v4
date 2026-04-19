@@ -10,21 +10,28 @@ import {
   View, StyleSheet, TouchableOpacity, Text,
   ActivityIndicator, Platform, Animated, PanResponder,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as THREE from 'three';
 import { Colors, Radii } from '../config/theme';
 import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScene, setupInteriorCamera, setInteriorLighting, setExteriorLighting } from './scene';
 import { buildRoom } from './room-builder';
 import { clearTextureCache } from './materials';
 import { RoomType, Tile, ZoneRow } from '../types';
+import { useTutorialTarget } from '../tutorial/TutorialContext';
 
 const styles = StyleSheet.create({
   wrap:       { flex: 1 },
   loading:    { ...StyleSheet.absoluteFillObject, alignItems:'center', justifyContent:'center', backgroundColor:'rgba(232,226,216,0.9)', gap:12 },
   loadingTxt: { fontSize:13, color:Colors.text2, fontWeight:'500' },
-  controls:   { position:'absolute', right:14, top:'18%', gap:8 },
+  controls:   {
+    position: 'absolute',
+    right: 10,
+    gap: 5,
+  },
   // Dark navy themed buttons matching navbar
   ctrlBtn:    {
-    width:42, height:42,
+    width: Platform.OS === 'web' ? 42 : 40,
+    height: Platform.OS === 'web' ? 42 : 40,
     backgroundColor: Colors.primary,
     borderWidth:1,
     borderColor:'rgba(124,111,247,0.25)',
@@ -38,6 +45,8 @@ const styles = StyleSheet.create({
   },
   ctrlBtnText:{ fontSize:15, color:'#E0E3F5' },
   ctrlBtnTextActive:{ color: Colors.primary },
+  ctrlBtnDisabled:{ opacity: 0.3 },
+  ctrlBtnTextDisabled:{ color: '#888' },
   tooltip:    { position:'absolute', right:50, top:8, backgroundColor:'rgba(26,26,46,0.92)', paddingHorizontal:10, paddingVertical:5, borderRadius:6, minWidth:90 },
   tooltipText:{ fontSize:11, color:'#fff', fontWeight:'500', textAlign:'center' },
   badge:      { position:'absolute', left:12, top:12, backgroundColor:'rgba(0,0,0,0.7)', paddingHorizontal:10, paddingVertical:6, borderRadius:12, flexDirection:'row', alignItems:'center', gap:8 },
@@ -66,6 +75,8 @@ interface Props {
   onResetDesign?: () => void;
   /** Register a function that can be called to capture a screenshot of the 3D canvas */
   onCaptureReady?: (fn: CaptureScreenshotFn) => void;
+  /** Pixels from the top of the canvas to start the controls column (phone only) */
+  controlsTopOffset?: number;
 }
 
 // ── Helper: dispose a room group's geometries & materials ──
@@ -112,34 +123,43 @@ function Tooltip({ label, visible }: { label: string; visible: boolean }) {
 }
 
 // ── Control button — dark navy theme + hover/press tooltip ───
-function CtrlBtn({ icon, label, onPress, active }: { icon: string; label: string; onPress: () => void; active?: boolean }) {
+function CtrlBtn({ icon, label, onPress, active, disabled, tutorialKey }: { icon: string; label: string; onPress: () => void; active?: boolean; disabled?: boolean; tutorialKey?: string }) {
   const [show, setShow] = useState(false);
+  const { ref: tutRef, isCurrentTarget, onTutorialPress } = useTutorialTarget(tutorialKey ?? '');
 
-  // On web, use native mouse events for real hover
   const webHoverProps = Platform.OS === 'web' ? {
-    onMouseEnter: () => setShow(true),
+    onMouseEnter: () => !disabled && setShow(true),
     onMouseLeave: () => setShow(false),
   } as any : {};
 
   return (
     <View style={{ alignItems: 'flex-end' }}>
       <TouchableOpacity
-        onPress={onPress}
-        onPressIn={() => setShow(true)}
+        ref={tutorialKey ? tutRef : undefined}
+        collapsable={false}
+        onPress={() => {
+          if (disabled) return;
+          onPress();
+          if (tutorialKey) onTutorialPress();
+        }}
+        onPressIn={() => !disabled && setShow(true)}
         onPressOut={() => setShow(false)}
-        style={[styles.ctrlBtn, active && styles.ctrlBtnActive]}
-        activeOpacity={0.75}
+        style={[styles.ctrlBtn, active && styles.ctrlBtnActive, disabled && styles.ctrlBtnDisabled,
+          isCurrentTarget && { borderColor: '#7C6FF7', borderWidth: 2 }]}
+        activeOpacity={disabled ? 1 : 0.75}
         {...webHoverProps}
       >
-        <Text style={[styles.ctrlBtnText, active && styles.ctrlBtnTextActive]}>{icon}</Text>
+        <Text style={[styles.ctrlBtnText, active && styles.ctrlBtnTextActive, disabled && styles.ctrlBtnTextDisabled]}>{icon}</Text>
       </TouchableOpacity>
-      <Tooltip label={label} visible={show} />
+      <Tooltip label={label} visible={show && !disabled} />
     </View>
   );
 }
 
 // ── Web 3D Canvas ─────────────────────────────────────────────
-function WebCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void }) {
+function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void; controlsTopOffset?: number }) {
+  const insets = useSafeAreaInsets();
+  const nativeTop = controlsTopOffset ?? 52;
   const containerRef = useRef<any>(null);
   const configRef = useRef(config);
   const stateRef = useRef<{
@@ -309,6 +329,7 @@ function WebCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuil
       const deltaY = e.clientY - s.lastMouseY;
 
       if (s.interiorMode) {
+        if (!s.autoRotate) { s.lastMouseX = e.clientX; s.lastMouseY = e.clientY; return; }
         s.yaw -= deltaX * 0.003;
         s.pitch -= deltaY * 0.003;
         const maxPitch = (72 * Math.PI) / 180;
@@ -503,15 +524,15 @@ function WebCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuil
   };
 
   const BTNS = [
-    { icon: '👁', label: 'Interior View', fn: toggleInterior, active: interiorMode },
-    { icon: '◁', label: 'Rotate Left',   fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw-=0.28;updateCameraFromYawPitch(s.bundle.camera,s.yaw,s.pitch);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y-=0.28;setAutoRotate(false);} } } },
+    { icon: '👁', label: 'Interior View', fn: toggleInterior, active: interiorMode, tutorialKey: 'btn_interior' },
+    { icon: '◁', label: 'Rotate Left',   fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw-=0.28;updateCameraFromYawPitch(s.bundle.camera,s.yaw,s.pitch);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y-=0.28;setAutoRotate(false);} } }, tutorialKey: 'btn_rotate_left' },
     { icon: '▷', label: 'Rotate Right',  fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw+=0.28;updateCameraFromYawPitch(s.bundle.camera,s.yaw,s.pitch);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y+=0.28;setAutoRotate(false);} } } },
-    { icon: '+', label: 'Zoom In',       fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.max(35,s.bundle.camera.fov-5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(0.88);s.bundle.camera.position.clampLength(1.5,30);} } } },
+    { icon: '+', label: 'Zoom In',       fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.max(35,s.bundle.camera.fov-5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(0.88);s.bundle.camera.position.clampLength(1.5,30);} } }, tutorialKey: 'btn_zoom_in' },
     { icon: '−', label: 'Zoom Out',      fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.min(100,s.bundle.camera.fov+5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(1.12);s.bundle.camera.position.clampLength(1.5,30);} } } },
-    { icon: '⊙', label: 'Reset View',    fn: () => { const s=stateRef.current; const c=configRef.current; if(s&&c){if(s.interiorMode){s.yaw=0;s.pitch=0;s.bundle.camera.fov=75;setupInteriorCamera(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);}else{frameCameraToRoom(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);if(s.roomGroup)s.roomGroup.rotation.y=0;s.autoRotate=true;setAutoRotate(true);} } } },
-    { icon: autoRotate?'⏸':'▶', label: autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s&&!s.interiorMode){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
-    { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){setInteriorLighting(s.bundle);}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} } },
-    { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} } },
+    { icon: '⊙', label: 'Reset View',    fn: () => { const s=stateRef.current; const c=configRef.current; if(s&&c){if(s.interiorMode){s.yaw=0;s.pitch=0;s.bundle.camera.fov=75;setupInteriorCamera(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);}else{frameCameraToRoom(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);if(s.roomGroup)s.roomGroup.rotation.y=0;s.autoRotate=true;setAutoRotate(true);} } }, tutorialKey: 'btn_reset' },
+    { icon: autoRotate?'⏸':'▶', label: interiorMode?(autoRotate?'Freeze View':'Unfreeze View'):autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
+    { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){s.bundle.hemi.intensity=s.lightOn?1.2:0.55;s.bundle.sun.intensity=s.lightOn?0.6:0;s.bundle.pointLight.intensity=s.lightOn?1.5:0.1;}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} }, tutorialKey: 'btn_light' },
+    { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} }, tutorialKey: 'btn_objects' },
     ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
@@ -526,8 +547,8 @@ function WebCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuil
       )}
       {ready && (
         <>
-          <View style={styles.controls}>
-            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} />)}
+          <View style={[styles.controls, { top: Platform.OS === 'web' ? 8 : nativeTop, bottom: insets.bottom + 6 }]}>
+            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} disabled={(b as any).disabled} tutorialKey={(b as any).tutorialKey} />)}
           </View>
           {interiorMode && (
             <View style={styles.badge}>
@@ -546,7 +567,9 @@ function WebCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuil
 }
 
 // ── Native 3D canvas (iOS / Android) ──────────────────────────
-function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void }) {
+function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void; controlsTopOffset?: number }) {
+  const insets = useSafeAreaInsets();
+  const nativeTop = controlsTopOffset ?? 52;
   const { GLView } = require('expo-gl');
   const configRef = useRef(config);
   const stateRef = useRef<{
@@ -742,6 +765,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomB
         const dy = moveY - t.lastY;
 
         if (s.interiorMode) {
+          if (!s.autoRotate) { t.lastX = moveX; t.lastY = moveY; return; }
           s.yaw -= dx * 0.004;
           s.pitch -= dy * 0.004;
           const maxP = (72 * Math.PI) / 180;
@@ -791,14 +815,14 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomB
 
   // ── Control buttons (includes 360° panorama) ────────────────
   const BTNS = [
-    { icon: '👁', label: '360° View', fn: toggleInterior, active: interiorMode },
+    { icon: '👁', label: '360° View', fn: toggleInterior, active: interiorMode, tutorialKey: 'btn_interior' },
     { icon: '◁', label: 'Rotate Left', fn: () => {
       const s = stateRef.current;
       if (s) {
         if (s.interiorMode) { s.yaw -= 0.28; updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch); }
         else if (s.roomGroup) { s.autoRotate = false; s.roomGroup.rotation.y -= 0.28; setAutoRotate(false); }
       }
-    }},
+    }, tutorialKey: 'btn_rotate_left' },
     { icon: '▷', label: 'Rotate Right', fn: () => {
       const s = stateRef.current;
       if (s) {
@@ -812,7 +836,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomB
         if (s.interiorMode) { s.bundle.camera.fov = Math.max(35, s.bundle.camera.fov - 5); s.bundle.camera.updateProjectionMatrix(); }
         else { s.bundle.camera.position.multiplyScalar(0.88); s.bundle.camera.position.clampLength(1.5, 30); }
       }
-    }},
+    }, tutorialKey: 'btn_zoom_in' },
     { icon: '−', label: 'Zoom Out', fn: () => {
       const s = stateRef.current;
       if (s) {
@@ -833,19 +857,30 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomB
           s.autoRotate = true; setAutoRotate(true);
         }
       }
-    }},
-    { icon: autoRotate ? '⏸' : '▶', label: autoRotate ? 'Pause' : 'Resume', fn: () => {
+    }, tutorialKey: 'btn_reset' },
+    { icon: autoRotate ? '⏸' : '▶', label: interiorMode ? (autoRotate ? 'Freeze View' : 'Unfreeze View') : autoRotate ? 'Pause' : 'Resume', fn: () => {
       const s = stateRef.current;
-      if (s && !s.interiorMode) { s.autoRotate = !s.autoRotate; setAutoRotate(s.autoRotate); }
+      if (s) { s.autoRotate = !s.autoRotate; setAutoRotate(s.autoRotate); }
     }},
     { icon: lightOn ? '☀' : '☽', label: lightOn ? 'Lights Off' : 'Lights On', fn: () => {
       const s = stateRef.current;
-      if (s) { s.lightOn = !s.lightOn; if (s.interiorMode) { setInteriorLighting(s.bundle); } else { setLighting(s.bundle, s.lightOn); } setLightOnUI(s.lightOn); }
-    }},
+      if (s) {
+        s.lightOn = !s.lightOn;
+        if (s.interiorMode) {
+          // properly toggle interior brightness
+          s.bundle.hemi.intensity       = s.lightOn ? 1.2  : 0.55;
+          s.bundle.sun.intensity        = s.lightOn ? 0.6  : 0.0;
+          s.bundle.pointLight.intensity = s.lightOn ? 1.5  : 0.1;
+        } else {
+          setLighting(s.bundle, s.lightOn);
+        }
+        setLightOnUI(s.lightOn);
+      }
+    }, tutorialKey: 'btn_light' },
     { icon: objectsOn ? '🚫' : '🪑', label: objectsOn ? 'Hide Objects' : 'Show Objects', active: !objectsOn, fn: () => {
       const s = stateRef.current;
       if (s?.fixturesGroup) { s.objectsOn = !s.objectsOn; s.fixturesGroup.visible = s.objectsOn; setObjectsOn(s.objectsOn); }
-    }},
+    }, tutorialKey: 'btn_objects' },
     ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
@@ -860,8 +895,8 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomB
       )}
       {ready && (
         <>
-          <View style={styles.controls} pointerEvents="box-none">
-            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} />)}
+          <View style={[styles.controls, { top: nativeTop, bottom: insets.bottom + 6 }]}>
+            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} disabled={(b as any).disabled} tutorialKey={(b as any).tutorialKey} />)}
           </View>
           {interiorMode && (
             <View style={styles.badge}>
@@ -880,9 +915,9 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady }: { config: RoomB
 }
 
 // ── Main export — routes web vs native ───────────────────────
-export function ThreeCanvas({ config, onResetDesign, onCaptureReady }: Props) {
+export function ThreeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }: Props) {
   if (Platform.OS === 'web') {
-    return <WebCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} />;
+    return <WebCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} controlsTopOffset={controlsTopOffset} />;
   }
-  return <NativeCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} />;
+  return <NativeCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} controlsTopOffset={controlsTopOffset} />;
 }

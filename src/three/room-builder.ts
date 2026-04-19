@@ -91,7 +91,7 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
   else if(cfg.roomType==='kitchen')kitchen(W,L,H,fg);
   else if(cfg.roomType==='bedroom')bedroom(W,L,H,fg);
   else if(cfg.roomType==='balcony')balcony(W,L,H,fg);
-  else if(cfg.roomType==='parking')parking(W,L,H,fg);
+  else if(cfg.roomType==='parking')parking(W,L,H,fg,wallColorHex);
   g.add(fg);
 
   g.position.set(0,-H/2,0);
@@ -306,255 +306,235 @@ function balcony(W:number,L:number,H:number,g:THREE.Group){
 }
 
 // ── Indian outdoor residential parking area ───────────────────
-// The FLOOR is the hero — catalog tiles are applied here.
-// House facade at back, compound wall on sides, gate at front.
-function parking(W:number,L:number,H:number,g:THREE.Group){
-  const white=std(0xffffff,0.9);
-  const cream=std(0xf5e6c8,0.85);
-  const brown=std(0x6b3a2a,0.7);
-  const darkBrown=std(0x4a2a1a,0.6);
-  const gray=std(0x888888,0.7);
-  const darkGray=std(0x555555,0.8);
-  const black=std(0x222222,0.9);
-  const green=std(0x2d6b3a,0.85);
+// Realistic carport with shade structure, bay markings, SUV, gate.
+function parking(W:number,L:number,H:number,g:THREE.Group,wallHex:number=0xf0e4d0){
+  const white=std(0xfafafa,0.85);
+  const plaster=new THREE.MeshStandardMaterial({color:wallHex,roughness:0.88});
+  const concrete=std(0xc0b8a8,0.9);
+  const brown=std(0x5c3318,0.7);
+  const black=std(0x1a1a1a,0.95);
+  const green=std(0x2a7a35,0.85);
   const terracotta=std(0xc4632a,0.8);
-  const iron=std(0x3a3a3a,0.4,0.6);
+  const iron=std(0x2a2a2a,0.3,0.7);
+  const steel=std(0x7a7a7a,0.2,0.8);
 
   // ═══════════════════════════════════════════════════════════
-  // HOUSE FACADE (at the back, -Z side)
+  // HOUSE FACADE (back wall, -Z side)
   // ═══════════════════════════════════════════════════════════
-  const houseH=H*1.1; // house is taller than the parking height param
-  const houseD=0.12; // thin facade depth
+  const houseH=H*1.25;
+  const houseD=0.14;
+  const plinthH=houseH*0.1;
 
-  // Main house wall (cream/off-white painted wall)
-  const houseWallMat=new THREE.MeshStandardMaterial({color:0xf0e4d0,roughness:0.85});
-  mesh(new THREE.BoxGeometry(W+0.4,houseH,houseD),houseWallMat,0,houseH/2,-L/2-houseD/2,g,true);
+  // Plinth (lower concrete band) — separate non-overlapping piece
+  mesh(new THREE.BoxGeometry(W+0.44,plinthH,houseD+0.04),concrete,0,plinthH/2,-L/2,g);
+  // Main plastered wall above plinth — starts exactly at plinthH, no overlap
+  const wallBodyH=houseH-plinthH;
+  mesh(new THREE.BoxGeometry(W+0.4,wallBodyH,houseD),plaster,0,plinthH+wallBodyH/2,-L/2,g);
+  // Parapet at top — sits on top edge, no overlap
+  mesh(new THREE.BoxGeometry(W+0.5,0.18,0.22),concrete,0,houseH+0.09,-L/2,g);
 
-  // House base strip (darker band at bottom)
-  const baseMat=std(0x8a7a6a,0.9);
-  mesh(new THREE.BoxGeometry(W+0.42,houseH*0.08,houseD+0.02),baseMat,0,houseH*0.04,-L/2-houseD/2,g);
-
-  // Roof overhang / sunshade (concrete slab extending forward)
-  const roofMat=std(0x888888,0.8);
-  mesh(new THREE.BoxGeometry(W+0.6,0.08,L*0.18),roofMat,0,houseH,-L/2-houseD/2+L*0.07,g);
-  // Roof edge finishing
-  mesh(new THREE.BoxGeometry(W+0.62,0.04,0.06),std(0x777777,0.7),0,houseH+0.04,-L/2+L*0.09-0.03,g);
-
-  // ── Main door (wooden, center) ──
-  const doorW=W*0.18, doorH=houseH*0.6;
-  mesh(new THREE.BoxGeometry(doorW,doorH,0.05),brown,0,doorH/2,-L/2+0.01,g);
-  // Door frame
-  mesh(new THREE.BoxGeometry(doorW+0.06,0.04,0.06),brown,0,doorH,-L/2+0.01,g); // top
-  mesh(new THREE.BoxGeometry(0.03,doorH,0.06),brown,-doorW/2-0.015,doorH/2,-L/2+0.01,g); // left
-  mesh(new THREE.BoxGeometry(0.03,doorH,0.06),brown,doorW/2+0.015,doorH/2,-L/2+0.01,g); // right
-  // Door handle
-  mesh(new THREE.BoxGeometry(0.02,0.06,0.03),std(0xd4a84a,0.3,0.7),doorW/4,doorH*0.48,-L/2+0.04,g);
-
-  // ── Windows (one on each side of door) ──
-  const winW=W*0.14, winH=houseH*0.28;
-  const winY=houseH*0.52;
-  const winMat=new THREE.MeshStandardMaterial({color:0x88bbdd,transparent:true,opacity:0.5,roughness:0.1});
+  // ── Double door with frame ──
+  const doorW=W*0.2, doorH=houseH*0.55;
+  mesh(new THREE.BoxGeometry(doorW+0.12,doorH+0.08,0.05),brown,0,doorH/2+plinthH,-L/2+0.01,g);
   [-1,1].forEach(side=>{
-    const wx=side*(W*0.28);
-    // Window frame
-    mesh(new THREE.BoxGeometry(winW+0.04,winH+0.04,0.04),white,wx,winY,-L/2+0.01,g);
-    // Glass
-    mesh(new THREE.BoxGeometry(winW,winH,0.02),winMat,wx,winY,-L/2+0.03,g);
-    // Window grille (horizontal bars)
-    for(let b=0;b<3;b++){
-      mesh(new THREE.BoxGeometry(winW-0.02,0.012,0.03),iron,wx,winY-winH/3+b*winH/3,-L/2+0.04,g);
-    }
-    // Window sill
-    mesh(new THREE.BoxGeometry(winW+0.06,0.03,0.06),white,wx,winY-winH/2-0.015,-L/2+0.02,g);
+    mesh(new THREE.BoxGeometry(doorW/2-0.03,doorH-0.04,0.04),std(0x8b5e3c,0.7),side*doorW/4,doorH/2+plinthH,-L/2+0.02,g);
+    mesh(new THREE.BoxGeometry(doorW/2-0.08,doorH*0.33,0.02),std(0x7a4f2d,0.8),side*doorW/4,doorH*0.62+plinthH,-L/2+0.03,g);
+    mesh(new THREE.BoxGeometry(doorW/2-0.08,doorH*0.33,0.02),std(0x7a4f2d,0.8),side*doorW/4,doorH*0.25+plinthH,-L/2+0.03,g);
+  });
+  const handleMat=std(0xd4a840,0.2,0.8);
+  [-1,1].forEach(side=>mesh(new THREE.BoxGeometry(0.025,0.1,0.03),handleMat,side*0.045,doorH*0.48+plinthH,-L/2+0.04,g));
+
+  // ── Windows with grilles ──
+  const winW=W*0.15, winH=houseH*0.27;
+  const winY=houseH*0.6;
+  const glass=new THREE.MeshStandardMaterial({color:0x88aacc,transparent:true,opacity:0.45,roughness:0.08});
+  [-1,1].forEach(side=>{
+    const wx=side*W*0.3;
+    mesh(new THREE.BoxGeometry(winW+0.06,winH+0.06,0.04),white,wx,winY,-L/2+0.01,g);
+    mesh(new THREE.BoxGeometry(winW,winH,0.02),glass,wx,winY,-L/2+0.03,g);
+    for(let b=0;b<3;b++) mesh(new THREE.BoxGeometry(0.012,winH-0.02,0.025),iron,wx-winW/2+winW/6+b*winW/3,winY,-L/2+0.04,g);
+    [-0.28,0.28].forEach(f=>mesh(new THREE.BoxGeometry(winW-0.02,0.012,0.025),iron,wx,winY+winH*f,-L/2+0.04,g));
+    mesh(new THREE.BoxGeometry(winW+0.1,0.04,0.08),concrete,wx,winY-winH/2-0.02,-L/2+0.02,g);
+    mesh(new THREE.BoxGeometry(winW+0.1,0.04,0.06),concrete,wx,winY+winH/2+0.02,-L/2+0.02,g);
   });
 
-  // ── Nameplate on wall ──
-  mesh(new THREE.BoxGeometry(W*0.18,0.08,0.02),std(0x1a3355,0.5),0,houseH*0.78,-L/2+0.01,g);
+  // Nameplate
+  mesh(new THREE.BoxGeometry(W*0.16,0.07,0.02),std(0x1a3355,0.5),0,houseH*0.82,-L/2+0.01,g);
 
-  // ── Wall-mounted lamp above door ──
-  const lampMat=new THREE.MeshStandardMaterial({color:0xffffdd,emissive:new THREE.Color(0xffff88),emissiveIntensity:0.5,roughness:0.3});
-  mesh(new THREE.BoxGeometry(0.06,0.08,0.06),std(0x444444,0.5),0,doorH+0.1,-L/2+0.04,g);
-  mesh(new THREE.SphereGeometry(0.04,8,8),lampMat,0,doorH+0.06,-L/2+0.06,g);
-
-  // ═══════════════════════════════════════════════════════════
-  // COMPOUND WALL (sides — low wall ~3ft height)
-  // ═══════════════════════════════════════════════════════════
-  const wallH=H*0.28; // compound wall height (~3ft feel)
-  const wallThick=0.08;
-  const wallMat=std(0xd8ccb8,0.85); // plastered compound wall color
-
-  // Left compound wall
-  mesh(new THREE.BoxGeometry(wallThick,wallH,L),wallMat,-W/2,wallH/2,0,g);
-  // Right compound wall
-  mesh(new THREE.BoxGeometry(wallThick,wallH,L),wallMat,W/2,wallH/2,0,g);
-
-  // Wall cap (flat stone on top)
-  const capMat=std(0xaaa090,0.7);
-  mesh(new THREE.BoxGeometry(wallThick+0.04,0.03,L+0.04),capMat,-W/2,wallH,0,g);
-  mesh(new THREE.BoxGeometry(wallThick+0.04,0.03,L+0.04),capMat,W/2,wallH,0,g);
-
-  // ═══════════════════════════════════════════════════════════
-  // GATE (front — +Z side)
-  // ═══════════════════════════════════════════════════════════
-  const gateW=W*0.45; // gate opening width
-  const pillarH=wallH*2.2;
-  const pillarW=0.14;
-
-  // Gate pillars (brick/concrete)
-  const pillarMat=std(0xc8b8a0,0.8);
+  // Wall-mounted lanterns (both sides of door)
+  const lampGlow=new THREE.MeshStandardMaterial({color:0xffffdd,emissive:new THREE.Color(0xffee88),emissiveIntensity:0.9,roughness:0.2});
   [-1,1].forEach(side=>{
-    const px=side*gateW/2;
-    mesh(new THREE.BoxGeometry(pillarW,pillarH,pillarW),pillarMat,px,pillarH/2,L/2,g,true);
-    // Pillar top cap (decorative)
-    mesh(new THREE.BoxGeometry(pillarW+0.04,0.04,pillarW+0.04),std(0xaa9880,0.7),px,pillarH,L/2,g);
-    // Small pyramid on top
-    mesh(new THREE.ConeGeometry(0.06,0.08,4),std(0xaa9880,0.7),px,pillarH+0.06,L/2,g);
+    const lx=side*W*0.13;
+    mesh(new THREE.BoxGeometry(0.06,0.14,0.06),std(0x333333,0.4),lx,doorH+plinthH+0.12,-L/2+0.04,g);
+    mesh(new THREE.SphereGeometry(0.038,8,8),lampGlow,lx,doorH+plinthH+0.06,-L/2+0.06,g);
   });
 
-  // Front wall segments (from compound wall to gate pillars)
-  const leftSegW=(W/2-gateW/2-pillarW/2);
-  if(leftSegW>0.05){
-    mesh(new THREE.BoxGeometry(leftSegW,wallH,wallThick),wallMat,-(gateW/2+pillarW/2+leftSegW/2),wallH/2,L/2,g);
-    mesh(new THREE.BoxGeometry(leftSegW+0.04,0.03,wallThick+0.04),capMat,-(gateW/2+pillarW/2+leftSegW/2),wallH,L/2,g);
-    mesh(new THREE.BoxGeometry(leftSegW,wallH,wallThick),wallMat,(gateW/2+pillarW/2+leftSegW/2),wallH/2,L/2,g);
-    mesh(new THREE.BoxGeometry(leftSegW+0.04,0.03,wallThick+0.04),capMat,(gateW/2+pillarW/2+leftSegW/2),wallH,L/2,g);
-  }
-
-  // Iron gate (vertical bars — one side open, one closed)
-  const gateH=wallH*1.6;
-  const barSpacing=0.06;
-  const numBars=Math.max(3,Math.floor(gateW/(2*barSpacing)));
-  // Left gate leaf (closed)
-  const gateLeft=new THREE.Group();
-  const topRail=new THREE.Mesh(new THREE.BoxGeometry(gateW/2-0.04,0.025,0.025),iron);
-  topRail.position.set(gateW/4,gateH,0);gateLeft.add(topRail);
-  const botRail=new THREE.Mesh(new THREE.BoxGeometry(gateW/2-0.04,0.025,0.025),iron);
-  botRail.position.set(gateW/4,0.06,0);gateLeft.add(botRail);
-  const midRail=new THREE.Mesh(new THREE.BoxGeometry(gateW/2-0.04,0.025,0.025),iron);
-  midRail.position.set(gateW/4,gateH*0.5,0);gateLeft.add(midRail);
-  for(let b=0;b<numBars;b++){
-    const bx=0.04+b*(gateW/2-0.04)/numBars;
-    const bar=new THREE.Mesh(new THREE.BoxGeometry(0.015,gateH,0.015),iron);
-    bar.position.set(bx,gateH/2,0);gateLeft.add(bar);
-  }
-  gateLeft.position.set(-gateW/2,0,L/2);
-  g.add(gateLeft);
-
-  // Right gate leaf (slightly open — rotated)
-  const gateRight=gateLeft.clone();
-  gateRight.position.set(gateW/2-0.02,0,L/2);
-  gateRight.scale.x=-1; // mirror
-  gateRight.rotation.y=0.4; // slightly open
-  g.add(gateRight);
+  // ═══════════════════════════════════════════════════════════
+  // COMPOUND WALLS (sides — brick with plaster inner face)
+  // ═══════════════════════════════════════════════════════════
+  const wallH=H*0.3;
+  const wallT=0.1;
+  const capMat=concrete;
+  const sideWallMat=new THREE.MeshStandardMaterial({color:wallHex,roughness:0.88});
+  [-1,1].forEach(side=>{
+    const wx=side*W/2;
+    mesh(new THREE.BoxGeometry(wallT,wallH,L),sideWallMat,wx,wallH/2,0,g);
+    mesh(new THREE.BoxGeometry(wallT+0.06,0.04,L+0.06),capMat,wx,wallH+0.02,0,g);
+  });
 
   // ═══════════════════════════════════════════════════════════
-  // PARKED VEHICLES
+  // CARPORT / SHADE CANOPY — shifted right, leaving left side open
   // ═══════════════════════════════════════════════════════════
+  const cpH=H*0.78;
+  const cpW=W*0.58;          // narrower — only covers right portion
+  const cpL=L*0.6;
+  const cpCX=W*0.18;         // centre shifted right of overall centre
+  const cpZ=-L/2+cpL/2+0.06;
+  const pillarSz=0.08;
 
-  // ── Car (parked on left side) ──
-  const carX=-W*0.22;
-  const carZ=-L*0.08;
-  const carW=Math.min(W*0.28,0.8);
-  const carL=Math.min(L*0.45,1.4);
-
-  // Car body (lower)
-  const carBody=std(0xeeeeee,0.4,0.15); // silver/white car
-  mesh(new THREE.BoxGeometry(carW,0.2,carL),carBody,carX,0.14,carZ,g,true);
-  // Car cabin (upper)
-  mesh(new THREE.BoxGeometry(carW*0.85,0.16,carL*0.5),carBody,carX,0.32,carZ-carL*0.05,g);
-  // Windshield (front)
-  const carWin=new THREE.MeshStandardMaterial({color:0x6699bb,transparent:true,opacity:0.55,roughness:0.08});
-  mesh(new THREE.BoxGeometry(carW*0.78,0.13,0.015),carWin,carX,0.3,carZ+carL*0.2,g);
-  // Rear window
-  mesh(new THREE.BoxGeometry(carW*0.72,0.1,0.015),carWin,carX,0.3,carZ-carL*0.3,g);
-  // Side windows
-  [-1,1].forEach(s=>mesh(new THREE.BoxGeometry(0.015,0.1,carL*0.35),carWin,carX+s*carW*0.42,0.3,carZ-carL*0.05,g));
-  // Wheels
   [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([sx,sz])=>{
-    const whl=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,0.03,12),black);
-    whl.rotation.z=Math.PI/2;
-    whl.position.set(carX+sx*carW*0.38,0.055,carZ+sz*carL*0.32);
-    g.add(whl);
-    // Hub cap
-    const hub=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.032,8),gray);
-    hub.rotation.z=Math.PI/2;
-    hub.position.set(carX+sx*(carW*0.38+0.001),0.055,carZ+sz*carL*0.32);
-    g.add(hub);
+    const px=cpCX+sx*cpW/2, pz=cpZ+sz*cpL/2;
+    mesh(new THREE.BoxGeometry(pillarSz,cpH,pillarSz),steel,px,cpH/2,pz,g);
+    mesh(new THREE.BoxGeometry(pillarSz+0.06,0.025,pillarSz+0.06),steel,px,0.012,pz,g);
   });
-  // Headlights
-  const hlMat=new THREE.MeshStandardMaterial({color:0xffffdd,emissive:new THREE.Color(0xffff88),emissiveIntensity:0.2,roughness:0.2});
-  [-1,1].forEach(s=>mesh(new THREE.BoxGeometry(0.05,0.035,0.015),hlMat,carX+s*carW*0.32,0.16,carZ+carL/2+0.008,g));
-  // Tail lights
-  const tailMat=std(0xcc2222,0.5);
-  [-1,1].forEach(s=>mesh(new THREE.BoxGeometry(0.05,0.035,0.015),tailMat,carX+s*carW*0.32,0.16,carZ-carL/2-0.008,g));
-  // Number plate (rear)
-  mesh(new THREE.BoxGeometry(carW*0.35,0.05,0.012),white,carX,0.1,carZ-carL/2-0.008,g);
+  [-1,1].forEach(sx=>mesh(new THREE.BoxGeometry(0.06,0.06,cpL+0.08),steel,cpCX+sx*cpW/2,cpH,cpZ,g));
+  for(let i=0;i<3;i++) mesh(new THREE.BoxGeometry(cpW+0.08,0.05,0.05),steel,cpCX,cpH,cpZ-cpL/2+i*(cpL/2),g);
 
-  // ── Scooter/Two-wheeler (parked on right side) ──
-  const scoX=W*0.25;
-  const scoZ=-L*0.15;
-  const scoBody=std(0x1a4488,0.5); // blue scooter
-  // Body
-  mesh(new THREE.BoxGeometry(0.14,0.14,0.55),scoBody,scoX,0.12,scoZ,g,true);
-  // Seat
-  mesh(new THREE.BoxGeometry(0.12,0.04,0.3),black,scoX,0.2,scoZ-0.02,g);
-  // Handle bar
-  mesh(new THREE.BoxGeometry(0.22,0.025,0.025),std(0xcccccc,0.3,0.7),scoX,0.26,scoZ+0.22,g);
-  // Mirrors
-  [-1,1].forEach(s=>mesh(new THREE.BoxGeometry(0.04,0.015,0.025),std(0x444444,0.3,0.5),scoX+s*0.13,0.28,scoZ+0.2,g));
-  // Front & rear wheels
-  [1,-1].forEach(s=>{
-    const wh=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.028,12),black);
-    wh.rotation.z=Math.PI/2;wh.position.set(scoX,0.05,scoZ+s*0.26);g.add(wh);
-  });
-  // Headlight
-  mesh(new THREE.SphereGeometry(0.025,8,8),hlMat,scoX,0.2,scoZ+0.28,g);
+  const roofPanelMat=new THREE.MeshStandardMaterial({color:0x607080,roughness:0.35,metalness:0.65,transparent:true,opacity:0.85});
+  for(let i=0;i<6;i++){
+    const pz2=cpZ-cpL/2+(i+0.5)*(cpL/6);
+    mesh(new THREE.BoxGeometry(cpW+0.1,0.016,cpL/6-0.008),roofPanelMat,cpCX,cpH+0.01,pz2,g);
+  }
+  mesh(new THREE.BoxGeometry(cpW+0.12,0.1,0.022),std(0x2a2a2a,0.5),cpCX,cpH-0.05,cpZ+cpL/2,g);
 
   // ═══════════════════════════════════════════════════════════
-  // GARDEN & OUTDOOR ELEMENTS
+  // GATE (front, +Z side)
   // ═══════════════════════════════════════════════════════════
-
-  // ── Potted plants along compound wall ──
-  const potMat=terracotta;
-  const leafMat=green;
-  [[-W/2+0.18,-L*0.3],[-W/2+0.18,L*0.1],[W/2-0.18,-L*0.25]].forEach(([px,pz])=>{
-    // Pot
-    mesh(new THREE.CylinderGeometry(0.06,0.05,0.1,10),potMat,px,0.05,pz,g);
-    // Soil
-    mesh(new THREE.CylinderGeometry(0.055,0.055,0.02,10),std(0x4a3520,0.95),px,0.11,pz,g);
-    // Plant (sphere of leaves)
-    mesh(new THREE.SphereGeometry(0.08,8,6),leafMat,px,0.22,pz,g);
+  const gateOpenW=W*0.55;
+  const gPillarH=wallH*2.3;
+  const gPillarSz=0.18;
+  [-1,1].forEach(side=>{
+    const px=side*gateOpenW/2;
+    mesh(new THREE.BoxGeometry(gPillarSz,gPillarH,gPillarSz),concrete,px,gPillarH/2,L/2,g,true);
+    mesh(new THREE.BoxGeometry(0.03,gPillarH-0.12,gPillarSz+0.01),std(0xb0a090,0.9),px,gPillarH/2,L/2,g);
+    mesh(new THREE.BoxGeometry(gPillarSz+0.06,0.06,gPillarSz+0.06),concrete,px,gPillarH+0.03,L/2,g);
+    mesh(new THREE.SphereGeometry(0.06,8,8),std(0xd4a840,0.2,0.5),px,gPillarH+0.12,L/2,g);
   });
-
-  // ── Tulsi pot (sacred basil — Indian tradition) near door ──
-  mesh(new THREE.BoxGeometry(0.12,0.2,0.12),terracotta,W*0.15,0.1,-L/2+0.15,g);
-  mesh(new THREE.CylinderGeometry(0.04,0.04,0.02,8),std(0x4a3520,0.95),W*0.15,0.21,-L/2+0.15,g);
-  mesh(new THREE.SphereGeometry(0.06,8,6),std(0x1a7a2a,0.9),W*0.15,0.3,-L/2+0.15,g);
-  mesh(new THREE.SphereGeometry(0.04,6,6),std(0x228833,0.9),W*0.15,0.36,-L/2+0.15,g);
-
-  // ── Shoe rack near door ──
-  mesh(new THREE.BoxGeometry(0.25,0.12,0.12),darkBrown,-W*0.18,0.06,-L/2+0.12,g);
-  // Shoes on rack
-  mesh(new THREE.BoxGeometry(0.06,0.03,0.08),std(0x2a2a2a,0.8),-W*0.18-0.06,0.13,-L/2+0.12,g);
-  mesh(new THREE.BoxGeometry(0.06,0.03,0.08),std(0x663322,0.8),-W*0.18+0.06,0.13,-L/2+0.12,g);
-
-  // ── Dustbin ──
-  mesh(new THREE.CylinderGeometry(0.05,0.04,0.14,10),std(0x446644,0.7),W/2-0.15,0.07,L*0.3,g);
-  mesh(new THREE.CylinderGeometry(0.055,0.055,0.015,10),std(0x446644,0.6),W/2-0.15,0.15,L*0.3,g);
-
-  // ── Rangoli / doorstep pattern (small colored dots near entrance) ──
-  const rangoliMat=std(0xff6633,0.7);
-  const rangoliW=std(0xffffff,0.7);
-  [0,-0.06,0.06].forEach(rx=>{
-    [-0.06,0,0.06].forEach(rz=>{
-      if(Math.abs(rx)+Math.abs(rz)<=0.06){
-        mesh(new THREE.CylinderGeometry(0.012,0.012,0.004,6),(rx===0&&rz===0)?rangoliW:rangoliMat,rx,0.003,-L/2+0.06+rz,g);
-      }
+  const segW=W/2-gateOpenW/2-gPillarSz/2;
+  if(segW>0.05){
+    [-1,1].forEach(side=>{
+      const cx=side*(gateOpenW/2+gPillarSz/2+segW/2);
+      mesh(new THREE.BoxGeometry(segW,wallH,wallT),sideWallMat,cx,wallH/2,L/2,g);
+      mesh(new THREE.BoxGeometry(segW+0.04,0.04,wallT+0.06),capMat,cx,wallH+0.02,L/2,g);
     });
-  });
+  }
+  const gH=wallH*1.55;
+  const slatMat=new THREE.MeshStandardMaterial({color:0x2a3a4a,roughness:0.28,metalness:0.75});
+  const nSlats=9;
+  for(let i=0;i<nSlats;i++) mesh(new THREE.BoxGeometry(gateOpenW/2-0.03,(gH/nSlats)*0.96,0.025),slatMat,-gateOpenW/4,0.05+i*(gH/nSlats),L/2,g);
+  mesh(new THREE.BoxGeometry(0.04,gH+0.04,0.04),iron,-gateOpenW/2+0.02,gH/2,L/2,g);
+  mesh(new THREE.BoxGeometry(0.04,gH+0.04,0.04),iron,-0.02,gH/2,L/2,g);
+  for(let i=0;i<nSlats;i++) mesh(new THREE.BoxGeometry(gateOpenW/2-0.03,(gH/nSlats)*0.96,0.025),slatMat,gateOpenW*0.62,0.05+i*(gH/nSlats),L/2,g);
+  mesh(new THREE.BoxGeometry(0.04,gH+0.04,0.04),iron,gateOpenW*0.62-(gateOpenW/4-0.02),gH/2,L/2,g);
+  mesh(new THREE.BoxGeometry(0.04,gH+0.04,0.04),iron,gateOpenW*0.62+(gateOpenW/4-0.02),gH/2,L/2,g);
 
-  // ── Driveway edge strip (subtle border on tiled area) ──
-  mesh(new THREE.BoxGeometry(W+0.02,0.02,0.04),gray,0,0.01,-L/2+0.02,g);
-  mesh(new THREE.BoxGeometry(0.04,0.02,L),gray,-W/2+0.02,0.01,0,g);
-  mesh(new THREE.BoxGeometry(0.04,0.02,L),gray,W/2-0.02,0.01,0,g);
+  // ═══════════════════════════════════════════════════════════
+  // REALISTIC PLANTERS — 3 per side wall, based on reference pot designs
+  // ═══════════════════════════════════════════════════════════
+  const potDarkMat=std(0x1e1e1e,0.45,0.15);
+  const potRimMat =std(0x2d2d2d,0.35,0.2);
+  const potWhiteMat=std(0xf2efea,0.55);
+  const soilDark=std(0x231208,0.95);
+  const leafA=std(0x1c5c22,0.8);
+  const leafB=std(0x2a7832,0.75);
+  const metalDark=std(0x181818,0.3,0.8);
+
+  // ── Style A: Tall tapered dark pot + dracaena spiky leaves ──
+  function potStyleA(px:number,pz:number){
+    const ph=0.55;
+    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.08,ph,14),potDarkMat);
+    p.position.set(px,ph/2,pz); g.add(p);
+    const r=new THREE.Mesh(new THREE.CylinderGeometry(0.145,0.132,0.028,14),potRimMat);
+    r.position.set(px,ph+0.014,pz); g.add(r);
+    const s=new THREE.Mesh(new THREE.CylinderGeometry(0.128,0.128,0.02,12),soilDark);
+    s.position.set(px,ph+0.01,pz); g.add(s);
+    // Spiky dracaena leaves — 10 thin panels at varying angles
+    const lHeights=[0.38,0.44,0.36,0.42,0.4,0.35,0.43,0.38,0.41,0.36];
+    for(let i=0;i<10;i++){
+      const ang=(i/10)*Math.PI*2;
+      const lh=lHeights[i];
+      const lf=new THREE.Mesh(new THREE.BoxGeometry(0.022,lh,0.005),i%2===0?leafA:leafB);
+      lf.position.set(px+Math.cos(ang)*0.038, ph+lh*0.52+0.02, pz+Math.sin(ang)*0.038);
+      lf.rotation.y=ang; lf.rotation.z=0.3+(i%3)*0.06;
+      g.add(lf);
+    }
+    // 4 central upright leaves
+    for(let i=0;i<4;i++){
+      const ang=(i/4)*Math.PI*2+0.4;
+      const lf=new THREE.Mesh(new THREE.BoxGeometry(0.018,0.45,0.005),leafA);
+      lf.position.set(px+Math.cos(ang)*0.012, ph+0.24, pz+Math.sin(ang)*0.012);
+      lf.rotation.y=ang; lf.rotation.z=0.08;
+      g.add(lf);
+    }
+  }
+
+  // ── Style B: Tall white oval pot + broad tropical leaves ──
+  function potStyleB(px:number,pz:number){
+    const ph=0.62;
+    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.155,0.09,ph,14),potWhiteMat);
+    p.position.set(px,ph/2,pz); g.add(p);
+    const r=new THREE.Mesh(new THREE.CylinderGeometry(0.162,0.155,0.025,14),std(0xe4e0da,0.55));
+    r.position.set(px,ph+0.012,pz); g.add(r);
+    const s=new THREE.Mesh(new THREE.CylinderGeometry(0.148,0.148,0.02,12),soilDark);
+    s.position.set(px,ph+0.01,pz); g.add(s);
+    // Broad bird-of-paradise style leaves
+    const angles=[0,1.15,-1.15,2.3,-2.3,3.14];
+    const lws=[0.1,0.085,0.085,0.09,0.09,0.08];
+    const lhs=[0.5,0.44,0.44,0.4,0.4,0.46];
+    angles.forEach((ang,i)=>{
+      const lf=new THREE.Mesh(new THREE.BoxGeometry(lws[i],lhs[i],0.005),i%2===0?leafA:leafB);
+      lf.position.set(px+Math.cos(ang)*0.055, ph+lhs[i]*0.5, pz+Math.sin(ang)*0.055);
+      lf.rotation.y=ang; lf.rotation.z=0.2+(i%3)*0.08;
+      g.add(lf);
+    });
+  }
+
+  // ── Style C: Elevated metal-stand planter + large monstera leaves ──
+  function potStyleC(px:number,pz:number){
+    const standH=0.42, ph=0.3;
+    // Pot
+    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,ph,12),potDarkMat);
+    p.position.set(px,standH+ph/2,pz); g.add(p);
+    const r=new THREE.Mesh(new THREE.CylinderGeometry(0.128,0.12,0.024,12),potRimMat);
+    r.position.set(px,standH+ph+0.012,pz); g.add(r);
+    const s=new THREE.Mesh(new THREE.CylinderGeometry(0.115,0.115,0.018,10),soilDark);
+    s.position.set(px,standH+ph+0.009,pz); g.add(s);
+    // 4 angled metal legs
+    [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([sx,sz])=>{
+      const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.009,0.009,standH,6),metalDark);
+      leg.position.set(px+sx*0.09, standH/2, pz+sz*0.09);
+      g.add(leg);
+    });
+    // Ring brace at 40% height
+    const brace=new THREE.Mesh(new THREE.TorusGeometry(0.09,0.007,6,16),metalDark);
+    brace.rotation.x=Math.PI/2; brace.position.set(px,standH*0.42,pz); g.add(brace);
+    // Large tropical leaves
+    const lDefs=[[0,0.55,0.11],[1.2,0.5,0.1],[-1.2,0.5,0.1],[2.4,0.45,0.09],[-2.4,0.45,0.09]];
+    lDefs.forEach(([ang,lh,lw],i)=>{
+      const lf=new THREE.Mesh(new THREE.BoxGeometry(lw,lh,0.005),i%2===0?leafA:leafB);
+      lf.position.set(px+Math.cos(ang)*0.04, standH+ph+lh*0.52, pz+Math.sin(ang)*0.04);
+      lf.rotation.y=ang; lf.rotation.z=0.18+(i%3)*0.07;
+      g.add(lf);
+    });
+  }
+
+  // 3 pots per side wall — evenly spaced, tight against wall
+  const potX=W/2-wallT/2-0.2;
+  const potZPos=[-L*0.33, -L*0.02, L*0.24];
+  potStyleA(-potX, potZPos[0]); potStyleC(-potX, potZPos[1]); potStyleB(-potX, potZPos[2]);
+  potStyleB( potX, potZPos[0]); potStyleA( potX, potZPos[1]); potStyleC( potX, potZPos[2]);
+
+  // ── Kerb border strips ──
+  mesh(new THREE.BoxGeometry(W*0.9,0.025,0.06),concrete,0,0.012,L/2-0.03,g);
+  [-1,1].forEach(s=>mesh(new THREE.BoxGeometry(0.055,0.025,L),concrete,s*(W/2-0.028),0.012,0,g));
 }

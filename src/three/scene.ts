@@ -119,6 +119,7 @@ export function frameCameraToRoom(cam:THREE.PerspectiveCamera, wFt:number, lFt:n
 }
 
 export function setLighting(b:SceneBundle, on:boolean) {
+  b.hemi.intensity=on?0.9:0.65;
   b.sun.intensity=on?1.4:0; b.pointLight.intensity=on?1.0:0;
 }
 

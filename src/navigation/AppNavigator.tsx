@@ -6,7 +6,7 @@
 //  Responsive: Phone shows bottom tab bar, Desktop/Tablet shows top nav.
 // ============================================================
 import React, { useEffect, useCallback, useRef, useState } from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, Animated, Text, StyleSheet } from 'react-native';
 import { TutorialProvider } from '../tutorial/TutorialContext';
 import { TutorialSpotlight } from '../tutorial/TutorialSpotlight';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +27,126 @@ import { AdminScreen }        from '../screens/AdminScreen';
 import { InventoryScreen }    from '../screens/InventoryScreen';
 import { AppHeader }          from '../components/AppHeader';
 import { BottomTabBar }       from '../components/BottomTabBar';
+
+// ── Full-screen overlay shown while the 3D scene loads ────────
+function SceneLoadingOverlay() {
+  const { isSceneLoading } = useAppStore();
+  const progress = useRef(new Animated.Value(0)).current;
+  const opacity  = useRef(new Animated.Value(0)).current;
+  const [pct, setPct] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const progressAnim = useRef<Animated.CompositeAnimation | null>(null);
+  const fadeAnim     = useRef<Animated.CompositeAnimation | null>(null);
+  const listenerRef  = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (isSceneLoading) {
+      setVisible(true);
+      progress.setValue(0);
+      setPct(0);
+
+      // Remove old listener before adding new one
+      if (listenerRef.current) progress.removeListener(listenerRef.current);
+      listenerRef.current = progress.addListener(({ value }) => setPct(Math.round(value)));
+
+      // Fade in
+      fadeAnim.current?.stop();
+      fadeAnim.current = Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true });
+      fadeAnim.current.start();
+
+      // Animate progress to 80% (remaining 20% waits for onRenderComplete)
+      progressAnim.current?.stop();
+      progressAnim.current = Animated.timing(progress, { toValue: 80, duration: 1200, useNativeDriver: false });
+      progressAnim.current.start();
+    } else {
+      // Snap to 100% then fade out
+      progressAnim.current?.stop();
+      progressAnim.current = Animated.timing(progress, { toValue: 100, duration: 150, useNativeDriver: false });
+      progressAnim.current.start(() => {
+        fadeAnim.current?.stop();
+        fadeAnim.current = Animated.timing(opacity, { toValue: 0, duration: 350, useNativeDriver: true });
+        fadeAnim.current.start(() => setVisible(false));
+      });
+    }
+
+    return () => {
+      if (listenerRef.current) { progress.removeListener(listenerRef.current); listenerRef.current = null; }
+    };
+  }, [isSceneLoading]);
+
+  if (!visible) return null;
+
+  const barWidth = progress.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+
+  return (
+    <Animated.View style={[navStyles.overlay, { opacity }]} pointerEvents="none">
+      <View style={navStyles.card}>
+        <Text style={navStyles.title}>Building 3D Room</Text>
+        <Text style={navStyles.subtitle}>Placing tiles and lighting…</Text>
+        <View style={navStyles.barBg}>
+          <Animated.View style={[navStyles.barFill, { width: barWidth }]} />
+        </View>
+        <Text style={navStyles.pctText}>{pct}%</Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+const navStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10,8,28,0.88)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  card: {
+    backgroundColor: '#16213e',
+    borderRadius: 18,
+    paddingHorizontal: 36,
+    paddingVertical: 32,
+    width: 280,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(124,111,247,0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#E0E3F5',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 12,
+    color: 'rgba(224,227,245,0.5)',
+    marginBottom: 22,
+    textAlign: 'center',
+  },
+  barBg: {
+    width: '100%',
+    height: 6,
+    backgroundColor: 'rgba(124,111,247,0.2)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: 6,
+    backgroundColor: '#f5c842',
+    borderRadius: 3,
+  },
+  pctText: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#f5c842',
+  },
+});
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
@@ -102,14 +222,10 @@ export function AppNavigator() {
 
   // ── Session restore on boot ─────────────────────────────────
   useEffect(() => {
-    console.log('[TileViz] Boot useEffect starting');
     let cancelled = false;
 
-    // Safety timeout: if boot takes >3s, show auth screen anyway
     const timeout = setTimeout(() => {
-      if (!bootDone.current) {
-        console.warn('[TileViz] Boot timeout — showing auth screen');
-        if (!cancelled) setReady(true);
+      if (!bootDone.current && !cancelled) setReady(true);
       }
     }, 3000);
 
@@ -201,6 +317,7 @@ export function AppNavigator() {
         </View>
         {showBottomTabs && <BottomTabBar />}
         <TutorialSpotlight />
+        <SceneLoadingOverlay />
       </View>
     </TutorialProvider>
   );

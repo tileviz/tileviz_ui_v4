@@ -31,6 +31,10 @@ interface AppState {
   activePage:       string;
   setActivePage:    (p: string) => void;
 
+  // Scene loading overlay (shown while 3D room rebuilds after design load)
+  isSceneLoading:   boolean;
+  setSceneLoading:  (v: boolean) => void;
+
   // Load complete design (unified method)
   loadDesign:       (design: SavedDesign, setSelectedTile?: (tile: Tile | null) => void, availableTiles?: Tile[], onComplete?: () => void) => void;
 
@@ -59,10 +63,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   activePage:       'visualizer',
   setActivePage:    (activePage)       => set({ activePage }),
 
+  isSceneLoading:   false,
+  setSceneLoading:  (isSceneLoading)   => set({ isSceneLoading }),
+
   // Load a complete design with all features
   loadDesign: (design, setSelectedTile, availableTiles = [], onComplete) => {
-    // First, set all room configuration in a single atomic update
     const updates: Partial<AppState> = {
+      isSceneLoading: true,
       roomType: design.roomType,
       dimensions: design.dimensions,
       selectedTileSize: design.selectedTileSize || '12x12',

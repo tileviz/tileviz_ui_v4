@@ -178,7 +178,7 @@ function SidebarContent({
 }
 
 export function VisualizerScreen() {
-  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage, clearDesign } = useAppStore();
+  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage, clearDesign, setSceneLoading } = useAppStore();
   const { selectedTile, setSelectedTile } = useCatalogStore();
   const { isPhone, isTablet } = useLayout();
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -305,7 +305,7 @@ export function VisualizerScreen() {
       <View style={{ flex: 1, backgroundColor: Colors.surface }}>
         {/* Full-screen 3D Canvas */}
         <View style={{ flex: 1, backgroundColor: '#e8e4dc', overflow: 'hidden' }}>
-          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} controlsTopOffset={infoBarBottom + 6} />
+          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} onRenderComplete={() => setSceneLoading(false)} controlsTopOffset={infoBarBottom + 6} />
 
            {/* Compact floating info bar */}
           <View
@@ -429,7 +429,7 @@ export function VisualizerScreen() {
         </View>
 
         <View style={{ flex: 1, backgroundColor: '#e8e4dc', overflow: 'hidden' }}>
-          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} />
+          <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} onRenderComplete={() => setSceneLoading(false)} />
         </View>
 
         <View style={s.bottomBar}>

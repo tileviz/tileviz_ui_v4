@@ -109,35 +109,6 @@ function updateCameraFromYawPitch(cam: THREE.PerspectiveCamera, yaw: number, pit
   cam.lookAt(target);
 }
 
-// ── Horizontal shimmer bar shown while the room is rebuilding ──
-function RenderingBar({ visible }: { visible: boolean }) {
-  const shimmer = useRef(new Animated.Value(0)).current;
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  useEffect(() => {
-    if (visible) {
-      shimmer.setValue(0);
-      animRef.current = Animated.loop(
-        Animated.timing(shimmer, { toValue: 1, duration: 700, useNativeDriver: true, isInteraction: false })
-      );
-      animRef.current.start();
-    } else {
-      animRef.current?.stop();
-      shimmer.setValue(0);
-    }
-    return () => { animRef.current?.stop(); };
-  }, [visible]);
-
-  if (!visible) return null;
-
-  const translateX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-200, 500] });
-  return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: 'rgba(124,111,247,0.15)', zIndex: 200, overflow: 'hidden' }}>
-      <Animated.View style={{ height: 3, width: 180, backgroundColor: Colors.gold, borderRadius: 2, transform: [{ translateX }] }} />
-    </View>
-  );
-}
-
 // ── Tooltip — animated fade, positioned left of the button ───
 function Tooltip({ label, visible }: { label: string; visible: boolean }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -206,14 +177,12 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
     lastMouseX: number;
     lastMouseY: number;
   } | null>(null);
-  const [ready,        setReady]        = useState(false);
-  const [rendering,    setRendering]    = useState(false);
-  const [autoRotate,   setAutoRotate]   = useState(true);
-  const [lightOn,      setLightOnUI]    = useState(true);
-  const [objectsOn,    setObjectsOn]    = useState(true);
+  const [ready,      setReady]      = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const [lightOn,    setLightOnUI]  = useState(true);
+  const [objectsOn,  setObjectsOn]  = useState(true);
   const [interiorMode, setInteriorMode] = useState(false);
-  const [showHint,     setShowHint]     = useState(false);
-  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showHint, setShowHint] = useState(false);
 
   // Keep config ref current
   useEffect(() => { configRef.current = config; }, [config]);
@@ -504,39 +473,29 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
     const s = stateRef.current;
     if (!s || !config) return;
 
-    // Show shimmer bar immediately so user gets instant feedback
-    setRendering(true);
-    if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
+    // Preserve current rotation
+    const prevRotation = s.roomGroup?.rotation.y ?? 0;
 
-    // Defer the actual (blocking) rebuild by one frame so React can paint the bar first
-    rebuildTimerRef.current = setTimeout(() => {
-      const sNow = stateRef.current;
-      if (!sNow) { setRendering(false); return; }
+    // Remove old room group
+    if (s.roomGroup) {
+      s.bundle.scene.remove(s.roomGroup);
+      disposeGroup(s.roomGroup);
+    }
 
-      const prevRotation = sNow.roomGroup?.rotation.y ?? 0;
+    // Build new room
+    const { roomGroup, fixturesGroup } = buildRoom(s.bundle.scene, config, s.bundle.pointLight);
+    s.roomGroup = roomGroup;
+    s.fixturesGroup = fixturesGroup;
+    s.fixturesGroup.visible = s.objectsOn;
 
-      if (sNow.roomGroup) {
-        sNow.bundle.scene.remove(sNow.roomGroup);
-        disposeGroup(sNow.roomGroup);
-      }
-
-      const { roomGroup, fixturesGroup } = buildRoom(sNow.bundle.scene, config, sNow.bundle.pointLight);
-      sNow.roomGroup = roomGroup;
-      sNow.fixturesGroup = fixturesGroup;
-      sNow.fixturesGroup.visible = sNow.objectsOn;
-
-      if (sNow.interiorMode) {
-        setupInteriorCamera(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-        updateCameraFromYawPitch(sNow.bundle.camera, sNow.yaw, sNow.pitch);
-      } else {
-        sNow.roomGroup.rotation.y = prevRotation;
-        frameCameraToRoom(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-      }
-
-      setRendering(false);
-    }, 30);
-
-    return () => { if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current); };
+    // Re-frame camera
+    if (s.interiorMode) {
+      setupInteriorCamera(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+      updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch);
+    } else {
+      s.roomGroup.rotation.y = prevRotation;
+      frameCameraToRoom(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+    }
   }, [config]);
 
   const toggleInterior = () => {

@@ -39,26 +39,28 @@ export function SavedDesignsScreen() {
   }, [designs, searchTrie]);
 
   const load = useCallback(async () => {
+    let fetched: typeof designs = [];
     try {
       const [designsData] = await Promise.all([
         getRooms(),
         tiles.length === 0 ? getTiles().then(t => setTiles(t)) : Promise.resolve(),
       ]);
+      fetched = designsData;
       setDesigns(designsData);
-      // Load local thumbnails for each design
-      const thumbMap: Record<string, string> = {};
-      await Promise.all(designsData.map(async d => {
-        const uri = await loadThumbnail(d.id);
-        if (uri) thumbMap[d.id] = uri;
-      }));
-      setThumbnails(thumbMap);
-    } catch (e: any) {
-      console.error('rooms:', e?.message);
+      // UI shows immediately after designs arrive — thumbnails load in background
+    } catch {
       showAlert('Error', 'Failed to load saved designs. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+    // Progressive thumbnail loading — one setState per resolved thumbnail, never blocks UI
+    fetched.forEach(async d => {
+      try {
+        const uri = await loadThumbnail(d.id);
+        if (uri) setThumbnails(prev => ({ ...prev, [d.id]: uri }));
+      } catch { /* thumbnail missing — emoji placeholder shown */ }
+    });
   }, [tiles.length, setTiles]);
 
   useEffect(() => {
@@ -200,6 +202,10 @@ export function SavedDesignsScreen() {
           key={`cols-${numCols}`}
           contentContainerStyle={{ padding: 14, gap: 14, paddingBottom: 40 }}
           columnWrapperStyle={numCols > 1 ? { gap: 14 } : undefined}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={8}
+          removeClippedSubviews={true}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

@@ -29,12 +29,30 @@ import { AppHeader }          from '../components/AppHeader';
 import { BottomTabBar }       from '../components/BottomTabBar';
 
 export function AppNavigator() {
-  console.log('[TileViz] AppNavigator rendering');
   const insets = useSafeAreaInsets();
   const { user, setUser, isReady, setReady } = useAuthStore();
   const { activePage, setActivePage } = useAppStore();
   const { isPhone, showBottomTabs } = useLayout();
   const bootDone = useRef(false);
+
+  // Lazy persistent mounting: mount each screen once on first visit, then keep alive.
+  // display:'none' hides inactive screens without unmounting — preserves state & avoids re-fetches.
+  const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
+
+  // Track newly visited pages to mount them (but never unmount once mounted)
+  useEffect(() => {
+    setVisitedPages(prev => {
+      if (prev.has(activePage)) return prev;
+      const next = new Set(prev);
+      next.add(activePage);
+      return next;
+    });
+  }, [activePage]);
+
+  // Reset visited pages on logout so stale data doesn't persist across user switches
+  useEffect(() => {
+    if (!user) setVisitedPages(new Set());
+  }, [user]);
 
   // ── Splash animation gate ────────────────────────────────────
   // Both flags must be true before we move past the splash screen:
@@ -97,27 +115,21 @@ export function AppNavigator() {
 
     (async () => {
       try {
-        console.log('[TileViz] Checking for existing token...');
         const token = await getAccessToken();
-        console.log('[TileViz] Token check result:', token ? 'found' : 'not found');
         if (token && !cancelled) {
           try {
-            console.log('[TileViz] Fetching user data...');
             const u = await apiGetMe();
-            console.log('[TileViz] User data received:', u?.email);
             if (!cancelled) {
               setUser(toAppUser(u));
-              setShowIntro(false); // skip intro if already logged in
+              setShowIntro(false);
             }
-          } catch (err) {
-            console.warn('[TileViz] Token invalid:', err);
-            // Token invalid — just go to auth
+          } catch {
+            // Token invalid — go to auth
           }
         }
-      } catch (e) {
-        console.warn('[TileViz] Boot error:', e);
+      } catch {
+        // Boot error — go to auth
       } finally {
-        console.log('[TileViz] Boot complete, setting ready');
         bootDone.current = true;
         clearTimeout(timeout);
         if (!cancelled) setReady(true);
@@ -153,40 +165,41 @@ export function AppNavigator() {
 
   // ── Intro screen (shown first) ─────────────────────────────
   if (!user && showIntro) {
-    console.log('[TileViz] Showing intro screen');
     return <IntroScreen onContinue={handleIntroContinue} />;
   }
 
   // ── Auth screen ─────────────────────────────────────────────
   if (!user) {
-    console.log('[TileViz] Showing auth screen');
     return <AuthScreen onAuthenticated={handleAuthenticated} />;
   }
 
-  // ── Main app ────────────────────────────────────────────────
-  console.log('[TileViz] Showing main app, page:', activePage);
-  const renderPage = () => {
-    switch (activePage) {
-      case 'catalog':   return <CatalogScreen />;
-      case 'saved':     return <SavedDesignsScreen />;
-      case 'inventory': return <InventoryScreen />;
-      case 'dashboard': return <DashboardScreen />;
-      case 'admin':     return <AdminScreen />;
-      default:          return <VisualizerScreen />;
-    }
-  };
-
+  // ── Main app — lazy persistent mounting ─────────────────────
+  // Each screen is mounted once on first visit and kept alive with display:'none'
+  // when inactive. This eliminates re-fetch on every tab switch.
   const headerHeight = isPhone ? 52 : 62;
+  const PAGES: { key: string; element: React.ReactElement }[] = [
+    { key: 'visualizer', element: <VisualizerScreen /> },
+    { key: 'catalog',    element: <CatalogScreen /> },
+    { key: 'saved',      element: <SavedDesignsScreen /> },
+    { key: 'inventory',  element: <InventoryScreen /> },
+    { key: 'dashboard',  element: <DashboardScreen /> },
+    { key: 'admin',      element: <AdminScreen /> },
+  ];
 
   return (
     <TutorialProvider>
       <View style={{ flex: 1, backgroundColor: Colors.surface }}>
         <AppHeader onLogout={handleLogout} />
         <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
-          {renderPage()}
+          {PAGES.map(({ key, element }) =>
+            visitedPages.has(key) ? (
+              <View key={key} style={{ flex: 1, display: activePage === key ? 'flex' : 'none' }}>
+                {element}
+              </View>
+            ) : null
+          )}
         </View>
         {showBottomTabs && <BottomTabBar />}
-        {/* Tutorial spotlight — renders on top of everything */}
         <TutorialSpotlight />
       </View>
     </TutorialProvider>

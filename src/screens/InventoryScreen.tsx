@@ -64,25 +64,29 @@ export function InventoryScreen() {
 
   // Load inventory from backend
   const loadInventory = useCallback(async () => {
+    let fetched: InventoryItem[] = [];
     try {
       const items = await getInventory();
+      fetched = items;
       setInventoryItems(items);
-      // Load any already-generated local thumbnails
-      const thumbMap: Record<string, string> = {};
-      await Promise.all(items.map(async (item: InventoryItem) => {
-        const uri = await loadThumbnail(item.id);
-        if (uri) thumbMap[item.id] = uri;
-      }));
-      setThumbnails(thumbMap);
-      // Queue items that still need a thumbnail for background rendering
-      setThumbQueue(items.filter(i => !thumbMap[i.id]));
-    } catch (error: any) {
-      console.error('Failed to load inventory:', error);
+      // Show UI immediately — thumbnails load progressively in background
+    } catch {
       showAlert('Error', 'Failed to load inventory items. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+    // Progressive thumbnail loading — UI never waits; each thumbnail appears as it resolves
+    const results = await Promise.all(
+      fetched.map(async (item: InventoryItem) => {
+        try {
+          const uri = await loadThumbnail(item.id);
+          if (uri) setThumbnails(prev => ({ ...prev, [item.id]: uri }));
+          return uri ? null : item;
+        } catch { return item; }
+      })
+    );
+    setThumbQueue(results.filter(Boolean) as InventoryItem[]);
   }, []);
 
   useEffect(() => {
@@ -154,33 +158,21 @@ export function InventoryScreen() {
   }
 
   async function handleDelete(item: InventoryItem) {
-    console.log('handleDelete called with item:', item.name, item.id);
-
-    // Only admin and shop_owner can delete
     if (user?.role === 'sales_person') {
-      console.log('Permission denied for sales person');
       showAlert('Permission Denied', 'Sales persons cannot delete inventory items.');
       return;
     }
-
-    console.log('Showing delete confirmation');
     showConfirm(
       'Delete Inventory',
       `Delete "${item.name}"?\n\nThis action cannot be undone.`,
       async () => {
-        console.log('Delete confirmed, calling API for ID:', item.id);
         try {
           await deleteInventory(item.id);
-          console.log('Delete API succeeded');
           setInventoryItems(prev => prev.filter(i => i.id !== item.id));
           showAlert('Deleted', `"${item.name}" has been removed from inventory.`);
         } catch (error: any) {
-          console.error('Delete error:', error);
           showError('Could not delete item', error);
         }
-      },
-      () => {
-        console.log('Delete cancelled');
       }
     );
   }
@@ -301,6 +293,10 @@ export function InventoryScreen() {
           key={`cols-${numCols}`}
           contentContainerStyle={{ padding: 14, gap: 12, paddingBottom: 40 }}
           columnWrapperStyle={numCols > 1 ? { gap: 12 } : undefined}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={8}
+          removeClippedSubviews={true}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -359,10 +355,7 @@ export function InventoryScreen() {
               {/* Action buttons - Outside the card TouchableOpacity */}
               <View style={s.cardFooter} pointerEvents="box-none">
                 <TouchableOpacity
-                  onPress={() => {
-                    console.log('Load button clicked for:', item.name);
-                    handleLoadDesign(item);
-                  }}
+                  onPress={() => handleLoadDesign(item)}
                   style={[s.actionBtn, s.loadBtn]}
                   activeOpacity={0.7}
                 >
@@ -370,12 +363,7 @@ export function InventoryScreen() {
                 </TouchableOpacity>
                 {(user?.role === 'admin' || user?.role === 'shop_owner') && (
                   <TouchableOpacity
-                    onPress={() => {
-                      console.log('Delete button clicked for:', item.name);
-                      console.log('Item ID:', item.id);
-                      console.log('User role:', user?.role);
-                      handleDelete(item);
-                    }}
+                    onPress={() => handleDelete(item)}
                     style={[s.actionBtn, s.deleteBtn]}
                     activeOpacity={0.7}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

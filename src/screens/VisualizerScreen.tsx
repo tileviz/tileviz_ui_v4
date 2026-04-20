@@ -194,7 +194,6 @@ export function VisualizerScreen() {
   const [infoBarBottom, setInfoBarBottom] = useState(52);
   const [showTutorial, setShowTutorial] = useState(false);
   const handleCaptureReady = useCallback((fn: CaptureScreenshotFn) => {
-    console.log('[TileViz] Capture function registered');
     captureRef.current = fn;
     // Auto-capture thumbnail for inventory items loaded into the Visualizer
     const pendingId = consumePendingCaptureId();
@@ -255,12 +254,8 @@ export function VisualizerScreen() {
 
   const handleShare = useCallback(async () => {
     try {
-      console.log('[TileViz] Share pressed, captureRef:', !!captureRef.current);
       let screenshot: string | null = null;
-      if (captureRef.current) {
-        screenshot = await captureRef.current();
-        console.log('[TileViz] Screenshot captured:', screenshot ? `${screenshot.length} chars` : 'null');
-      }
+      if (captureRef.current) screenshot = await captureRef.current();
       await shareDesignPdf({
         roomType,
         dimensions,
@@ -273,7 +268,6 @@ export function VisualizerScreen() {
         screenshotDataUri: screenshot ?? undefined,
       });
     } catch (e: any) {
-      console.error('[TileViz] Share error:', e);
       showAlert('Share Error', e?.message ?? 'Failed to generate PDF');
     }
   }, [roomType, dimensions, selectedTileSize, isCustom, tw, th, wallColor, zoneRows, selectedTile, tilesNeeded, totalSqFt]);

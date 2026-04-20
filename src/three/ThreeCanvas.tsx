@@ -268,8 +268,13 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
           // Attempt 1: direct toDataURL (works if canvas isn't CORS-tainted)
           try {
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            if (dataUrl && dataUrl.length > 100) return dataUrl;
-          } catch {}
+            if (dataUrl && dataUrl.length > 100) {
+              console.log('[TileViz] Screenshot via toDataURL:', dataUrl.length, 'chars');
+              return dataUrl;
+            }
+          } catch (e) {
+            console.warn('[TileViz] toDataURL failed (CORS tainted?):', e);
+          }
 
           // Attempt 2: render target + readPixels (bypasses CORS)
           try {
@@ -286,12 +291,14 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
             bundle.renderer.setRenderTarget(null);
             rt.dispose();
 
+            // Check if we got actual pixel data
             let hasData = false;
             for (let i = 0; i < Math.min(pixels.length, 1000); i += 4) {
               if (pixels[i] !== 0 || pixels[i+1] !== 0 || pixels[i+2] !== 0) {
                 hasData = true; break;
               }
             }
+            console.log('[TileViz] readRenderTargetPixels hasData:', hasData, 'size:', w, 'x', h);
 
             if (hasData) {
               const offscreen = document.createElement('canvas');
@@ -308,7 +315,9 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
               ctx.putImageData(imgData, 0, 0);
               return offscreen.toDataURL('image/jpeg', 0.85);
             }
-          } catch {}
+          } catch (e) {
+            console.warn('[TileViz] readRenderTargetPixels failed:', e);
+          }
 
           return null;
         });
@@ -577,7 +586,6 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
           <Text style={styles.loadingTxt}>Building 3D Room…</Text>
         </View>
       )}
-      <RenderingBar visible={ready && rendering} />
       {ready && (
         <>
           <View style={[styles.controls, { top: Platform.OS === 'web' ? 8 : nativeTop, bottom: insets.bottom + 6 }]}>
@@ -618,13 +626,11 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
   } | null>(null);
 
   const [ready,        setReady]        = useState(false);
-  const [rendering,    setRendering]    = useState(false);
   const [autoRotate,   setAutoRotate]   = useState(true);
   const [lightOn,      setLightOnUI]    = useState(true);
   const [objectsOn,    setObjectsOn]    = useState(true);
   const [interiorMode, setInteriorMode] = useState(false);
   const [showHint,     setShowHint]     = useState(false);
-  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep config ref current
   useEffect(() => { configRef.current = config; }, [config]);
@@ -665,22 +671,40 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
     // Register screenshot capture function (native: GLView.takeSnapshotAsync)
     if (onCaptureReady) {
       onCaptureReady(async () => {
+        console.log('[TileViz] Native capture function CALLED');
         try {
+          console.log('[TileViz] Native capture: requiring expo-gl...');
           const ExpoGL = require('expo-gl');
           const GLV = ExpoGL.GLView;
+          console.log('[TileViz] Native capture: GLV exists:', !!GLV);
+          console.log('[TileViz] Native capture: takeSnapshotAsync exists:', typeof GLV?.takeSnapshotAsync);
+          console.log('[TileViz] Native capture: gl context id:', gl?.contextId);
+
           bundle.renderer.render(bundle.scene, bundle.camera);
           gl.endFrameEXP();
+
+          console.log('[TileViz] Native capture: calling takeSnapshotAsync...');
           const snapshot = await GLV.takeSnapshotAsync(gl, { format: 'jpeg', compress: 0.85 });
+          console.log('[TileViz] Native capture: snapshot:', JSON.stringify(snapshot));
+
           if (snapshot?.uri) {
+            // SDK 55: use new File API, convert bytes to base64
             const { File } = require('expo-file-system');
             const file = new File(snapshot.uri);
             const bytes = await file.bytes();
+            // Convert Uint8Array to base64 string
             let binary = '';
-            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-            return `data:image/jpeg;base64,${btoa(binary)}`;
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+            console.log('[TileViz] Native capture: got base64, length:', base64?.length);
+            return `data:image/jpeg;base64,${base64}`;
           }
+          console.log('[TileViz] Native capture: no URI');
           return null;
-        } catch {
+        } catch (e: any) {
+          console.error('[TileViz] Native capture ERROR:', e?.message || e, e?.stack);
           return null;
         }
       });
@@ -702,39 +726,29 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
     const s = stateRef.current;
     if (!s || !config) return;
 
-    // Show shimmer bar immediately
-    setRendering(true);
-    if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
+    // Preserve current rotation
+    const prevRotation = s.roomGroup?.rotation.y ?? 0;
 
-    // Defer the blocking rebuild so React can render the bar first
-    rebuildTimerRef.current = setTimeout(() => {
-      const sNow = stateRef.current;
-      if (!sNow) { setRendering(false); return; }
+    // Clean up old room
+    if (s.roomGroup) {
+      s.bundle.scene.remove(s.roomGroup);
+      disposeGroup(s.roomGroup);
+    }
 
-      const prevRotation = sNow.roomGroup?.rotation.y ?? 0;
+    // Build new room with updated config
+    const { roomGroup, fixturesGroup } = buildRoom(s.bundle.scene, config, s.bundle.pointLight);
+    s.roomGroup = roomGroup;
+    s.fixturesGroup = fixturesGroup;
+    s.fixturesGroup.visible = s.objectsOn;
 
-      if (sNow.roomGroup) {
-        sNow.bundle.scene.remove(sNow.roomGroup);
-        disposeGroup(sNow.roomGroup);
-      }
-
-      const { roomGroup, fixturesGroup } = buildRoom(sNow.bundle.scene, config, sNow.bundle.pointLight);
-      sNow.roomGroup = roomGroup;
-      sNow.fixturesGroup = fixturesGroup;
-      sNow.fixturesGroup.visible = sNow.objectsOn;
-
-      if (sNow.interiorMode) {
-        setupInteriorCamera(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-        updateCameraFromYawPitch(sNow.bundle.camera, sNow.yaw, sNow.pitch);
-      } else {
-        sNow.roomGroup.rotation.y = prevRotation;
-        frameCameraToRoom(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-      }
-
-      setRendering(false);
-    }, 30);
-
-    return () => { if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current); };
+    // Re-frame camera for new room dimensions
+    if (s.interiorMode) {
+      setupInteriorCamera(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+      updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch);
+    } else {
+      s.roomGroup.rotation.y = prevRotation;
+      frameCameraToRoom(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+    }
   }, [config]);
 
   // ── Touch gesture handling via PanResponder ─────────────────
@@ -920,7 +934,6 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
           <Text style={styles.loadingTxt}>Building 3D Room…</Text>
         </View>
       )}
-      <RenderingBar visible={ready && rendering} />
       {ready && (
         <>
           <View style={[styles.controls, { top: nativeTop, bottom: insets.bottom + 6 }]}>

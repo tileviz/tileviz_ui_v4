@@ -1,6 +1,6 @@
 // CatalogScreen — split layout: tile grid (left) + sliding sidebar (right)
 // Mobile: Zone Arena shown as bottom-sheet modal; auto-closes on row tap
-import React, { useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
   StyleSheet, RefreshControl, ScrollView, Image,
@@ -20,7 +20,6 @@ import { getTiles, deleteTile } from '../api/tiles';
 import { CAT_TABS, ROOM_SIZE_FILTERS } from '../config';
 import { Tile } from '../types';
 import { showConfirm, showAlert, showError } from '../utils/alert';
-import { useTutorial } from '../tutorial/TutorialContext';
 
 const H_PAD = 12;
 
@@ -39,19 +38,6 @@ export function CatalogScreen() {
   const { zoneRows, setZoneRows, setActivePage } = useAppStore();
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
-
-  const { registerTarget, unregisterTarget, completeStep } = useTutorial();
-  const bathroomChipRef = useRef<any>(null);
-  const firstTileRef = useRef<any>(null);
-
-  useEffect(() => {
-    registerTarget('filter_bathroom', bathroomChipRef);
-    registerTarget('select_tile', firstTileRef);
-    return () => {
-      unregisterTarget('filter_bathroom');
-      unregisterTarget('select_tile');
-    };
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -210,11 +196,8 @@ export function CatalogScreen() {
               const active = activeTab === tab.key;
               return (
                 <TouchableOpacity
-                  ref={tab.key === 'bathroom' ? bathroomChipRef : undefined}
-                  collapsable={false}
                   onPress={() => {
                     setActiveTab(tab.key);
-                    if (tab.key === 'bathroom') completeStep('filter_bathroom');
                   }}
                   style={[s.chip, active && s.chipActive]}
                   activeOpacity={0.7}
@@ -283,12 +266,12 @@ export function CatalogScreen() {
               </View>
             ) : (
               <View style={s.tileWrap}>
-                {filtered.map((item, idx) => (
-                  <View key={item.id} ref={idx === 0 ? firstTileRef : undefined} collapsable={false}>
+                {filtered.map((item) => (
+                  <View key={item.id}>
                     <TileCard
                       tile={item}
                       selected={selectedTile?.id === item.id}
-                      onPress={(tile) => { handleTilePress(tile); completeStep('select_tile'); }}
+                      onPress={(tile) => { handleTilePress(tile); }}
                       onDelete={canDelete ? handleDelete : undefined}
                       canDelete={canDelete}
                     />

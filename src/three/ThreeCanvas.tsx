@@ -73,8 +73,9 @@ export type CaptureScreenshotFn = () => Promise<string | null>;
 interface Props {
   config: RoomBuildConfig | null;
   onResetDesign?: () => void;
+  /** Register a function that can be called to capture a screenshot of the 3D canvas */
   onCaptureReady?: (fn: CaptureScreenshotFn) => void;
-  onRenderComplete?: () => void;
+  /** Pixels from the top of the canvas to start the controls column (phone only) */
   controlsTopOffset?: number;
 }
 
@@ -155,34 +156,8 @@ function CtrlBtn({ icon, label, onPress, active, disabled, tutorialKey }: { icon
   );
 }
 
-// ── Horizontal shimmer bar shown while the room rebuilds ──────
-function RenderingBar({ visible }: { visible: boolean }) {
-  const shimmer = useRef(new Animated.Value(0)).current;
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-  useEffect(() => {
-    if (visible) {
-      shimmer.setValue(0);
-      animRef.current = Animated.loop(
-        Animated.timing(shimmer, { toValue: 1, duration: 700, useNativeDriver: true, isInteraction: false })
-      );
-      animRef.current.start();
-    } else {
-      animRef.current?.stop();
-      shimmer.setValue(0);
-    }
-    return () => { animRef.current?.stop(); };
-  }, [visible]);
-  if (!visible) return null;
-  const translateX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-200, 500] });
-  return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: 'rgba(124,111,247,0.15)', zIndex: 200, overflow: 'hidden' }}>
-      <Animated.View style={{ height: 3, width: 180, backgroundColor: Colors.gold, borderRadius: 2, transform: [{ translateX }] }} />
-    </View>
-  );
-}
-
 // ── Web 3D Canvas ─────────────────────────────────────────────
-function WebCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, controlsTopOffset }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void; onRenderComplete?: () => void; controlsTopOffset?: number }) {
+function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void; controlsTopOffset?: number }) {
   const insets = useSafeAreaInsets();
   const nativeTop = controlsTopOffset ?? 52;
   const containerRef = useRef<any>(null);
@@ -202,14 +177,12 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, co
     lastMouseX: number;
     lastMouseY: number;
   } | null>(null);
-  const [ready,        setReady]        = useState(false);
-  const [rendering,    setRendering]    = useState(false);
-  const [autoRotate,   setAutoRotate]   = useState(true);
-  const [lightOn,      setLightOnUI]    = useState(true);
-  const [objectsOn,    setObjectsOn]    = useState(true);
+  const [ready,      setReady]      = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const [lightOn,    setLightOnUI]  = useState(true);
+  const [objectsOn,  setObjectsOn]  = useState(true);
   const [interiorMode, setInteriorMode] = useState(false);
-  const [showHint,     setShowHint]     = useState(false);
-  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showHint, setShowHint] = useState(false);
 
   // Keep config ref current
   useEffect(() => { configRef.current = config; }, [config]);
@@ -500,34 +473,29 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, co
     const s = stateRef.current;
     if (!s || !config) return;
 
-    setRendering(true);
-    if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
+    // Preserve current rotation
+    const prevRotation = s.roomGroup?.rotation.y ?? 0;
 
-    rebuildTimerRef.current = setTimeout(() => {
-      const sNow = stateRef.current;
-      if (!sNow) { setRendering(false); return; }
+    // Remove old room group
+    if (s.roomGroup) {
+      s.bundle.scene.remove(s.roomGroup);
+      disposeGroup(s.roomGroup);
+    }
 
-      const prevRotation = sNow.roomGroup?.rotation.y ?? 0;
-      if (sNow.roomGroup) { sNow.bundle.scene.remove(sNow.roomGroup); disposeGroup(sNow.roomGroup); }
+    // Build new room
+    const { roomGroup, fixturesGroup } = buildRoom(s.bundle.scene, config, s.bundle.pointLight);
+    s.roomGroup = roomGroup;
+    s.fixturesGroup = fixturesGroup;
+    s.fixturesGroup.visible = s.objectsOn;
 
-      const { roomGroup, fixturesGroup } = buildRoom(sNow.bundle.scene, config, sNow.bundle.pointLight);
-      sNow.roomGroup = roomGroup;
-      sNow.fixturesGroup = fixturesGroup;
-      sNow.fixturesGroup.visible = sNow.objectsOn;
-
-      if (sNow.interiorMode) {
-        setupInteriorCamera(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-        updateCameraFromYawPitch(sNow.bundle.camera, sNow.yaw, sNow.pitch);
-      } else {
-        sNow.roomGroup.rotation.y = prevRotation;
-        frameCameraToRoom(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-      }
-
-      setRendering(false);
-      onRenderComplete?.();
-    }, 30);
-
-    return () => { if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current); };
+    // Re-frame camera
+    if (s.interiorMode) {
+      setupInteriorCamera(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+      updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch);
+    } else {
+      s.roomGroup.rotation.y = prevRotation;
+      frameCameraToRoom(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+    }
   }, [config]);
 
   const toggleInterior = () => {
@@ -577,7 +545,6 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, co
           <Text style={styles.loadingTxt}>Building 3D Room…</Text>
         </View>
       )}
-      <RenderingBar visible={ready && rendering} />
       {ready && (
         <>
           <View style={[styles.controls, { top: Platform.OS === 'web' ? 8 : nativeTop, bottom: insets.bottom + 6 }]}>
@@ -600,7 +567,7 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, co
 }
 
 // ── Native 3D canvas (iOS / Android) ──────────────────────────
-function NativeCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, controlsTopOffset }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void; onRenderComplete?: () => void; controlsTopOffset?: number }) {
+function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }: { config: RoomBuildConfig | null; onResetDesign?: () => void; onCaptureReady?: (fn: CaptureScreenshotFn) => void; controlsTopOffset?: number }) {
   const insets = useSafeAreaInsets();
   const nativeTop = controlsTopOffset ?? 52;
   const { GLView } = require('expo-gl');
@@ -618,13 +585,11 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete,
   } | null>(null);
 
   const [ready,        setReady]        = useState(false);
-  const [rendering,    setRendering]    = useState(false);
   const [autoRotate,   setAutoRotate]   = useState(true);
   const [lightOn,      setLightOnUI]    = useState(true);
   const [objectsOn,    setObjectsOn]    = useState(true);
   const [interiorMode, setInteriorMode] = useState(false);
   const [showHint,     setShowHint]     = useState(false);
-  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep config ref current
   useEffect(() => { configRef.current = config; }, [config]);
@@ -720,34 +685,29 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete,
     const s = stateRef.current;
     if (!s || !config) return;
 
-    setRendering(true);
-    if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
+    // Preserve current rotation
+    const prevRotation = s.roomGroup?.rotation.y ?? 0;
 
-    rebuildTimerRef.current = setTimeout(() => {
-      const sNow = stateRef.current;
-      if (!sNow) { setRendering(false); return; }
+    // Clean up old room
+    if (s.roomGroup) {
+      s.bundle.scene.remove(s.roomGroup);
+      disposeGroup(s.roomGroup);
+    }
 
-      const prevRotation = sNow.roomGroup?.rotation.y ?? 0;
-      if (sNow.roomGroup) { sNow.bundle.scene.remove(sNow.roomGroup); disposeGroup(sNow.roomGroup); }
+    // Build new room with updated config
+    const { roomGroup, fixturesGroup } = buildRoom(s.bundle.scene, config, s.bundle.pointLight);
+    s.roomGroup = roomGroup;
+    s.fixturesGroup = fixturesGroup;
+    s.fixturesGroup.visible = s.objectsOn;
 
-      const { roomGroup, fixturesGroup } = buildRoom(sNow.bundle.scene, config, sNow.bundle.pointLight);
-      sNow.roomGroup = roomGroup;
-      sNow.fixturesGroup = fixturesGroup;
-      sNow.fixturesGroup.visible = sNow.objectsOn;
-
-      if (sNow.interiorMode) {
-        setupInteriorCamera(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-        updateCameraFromYawPitch(sNow.bundle.camera, sNow.yaw, sNow.pitch);
-      } else {
-        sNow.roomGroup.rotation.y = prevRotation;
-        frameCameraToRoom(sNow.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
-      }
-
-      setRendering(false);
-      onRenderComplete?.();
-    }, 30);
-
-    return () => { if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current); };
+    // Re-frame camera for new room dimensions
+    if (s.interiorMode) {
+      setupInteriorCamera(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+      updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch);
+    } else {
+      s.roomGroup.rotation.y = prevRotation;
+      frameCameraToRoom(s.bundle.camera, config.widthFt, config.lengthFt, config.heightFt);
+    }
   }, [config]);
 
   // ── Touch gesture handling via PanResponder ─────────────────
@@ -933,7 +893,6 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete,
           <Text style={styles.loadingTxt}>Building 3D Room…</Text>
         </View>
       )}
-      <RenderingBar visible={ready && rendering} />
       {ready && (
         <>
           <View style={[styles.controls, { top: nativeTop, bottom: insets.bottom + 6 }]}>
@@ -956,9 +915,9 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete,
 }
 
 // ── Main export — routes web vs native ───────────────────────
-export function ThreeCanvas({ config, onResetDesign, onCaptureReady, onRenderComplete, controlsTopOffset }: Props) {
+export function ThreeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }: Props) {
   if (Platform.OS === 'web') {
-    return <WebCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} onRenderComplete={onRenderComplete} controlsTopOffset={controlsTopOffset} />;
+    return <WebCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} controlsTopOffset={controlsTopOffset} />;
   }
-  return <NativeCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} onRenderComplete={onRenderComplete} controlsTopOffset={controlsTopOffset} />;
+  return <NativeCanvas config={config} onResetDesign={onResetDesign} onCaptureReady={onCaptureReady} controlsTopOffset={controlsTopOffset} />;
 }

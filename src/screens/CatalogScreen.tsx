@@ -36,7 +36,7 @@ export function CatalogScreen() {
     assigningKey, setAssigningKey,
     setZoneStep,
   } = useCatalogStore();
-  const { zoneRows, setZoneRows, setActivePage, setSceneLoading } = useAppStore();
+  const { zoneRows, setZoneRows, setActivePage } = useAppStore();
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -355,7 +355,6 @@ export function CatalogScreen() {
               setSidebarOpen(false);
               setAssigningKey(null);
               setZoneStep(1);
-              setSceneLoading(true);
               setActivePage('visualizer');
             }}
           />
@@ -384,7 +383,6 @@ export function CatalogScreen() {
                   setSidebarOpen(false);
                   setAssigningKey(null);
                   setZoneStep(1);
-                  setSceneLoading(true);
                   setActivePage('visualizer');
                 }}
               />

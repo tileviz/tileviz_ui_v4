@@ -3,7 +3,7 @@
 //  Inventory Library — browse, search, and manage saved
 //  design inventories. Accessible to Admin, Shop Owner, Sales.
 // ============================================================
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, useWindowDimensions, ActivityIndicator, RefreshControl, Image,
@@ -52,6 +52,8 @@ export function InventoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTrie] = useState(() => new Trie());
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const numCols = width > 1200 ? 4 : width > 800 ? 3 : width > 500 ? 2 : 1;
 
@@ -76,17 +78,21 @@ export function InventoryScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-    // Progressive thumbnail loading — UI never waits; each thumbnail appears as it resolves
-    const results = await Promise.all(
-      fetched.map(async (item: InventoryItem) => {
+    // Load thumbnails in small batches so the main thread is never flooded
+    const BATCH = 3;
+    const missing: InventoryItem[] = [];
+    for (let i = 0; i < fetched.length; i += BATCH) {
+      if (!mountedRef.current) break;
+      const batch = fetched.slice(i, i + BATCH);
+      await Promise.all(batch.map(async (item: InventoryItem) => {
         try {
           const uri = await loadThumbnail(item.id);
-          if (uri) setThumbnails(prev => ({ ...prev, [item.id]: uri }));
-          return uri ? null : item;
-        } catch { return item; }
-      })
-    );
-    setThumbQueue(results.filter(Boolean) as InventoryItem[]);
+          if (uri && mountedRef.current) setThumbnails(prev => ({ ...prev, [item.id]: uri }));
+          if (!uri) missing.push(item);
+        } catch { missing.push(item); }
+      }));
+    }
+    if (mountedRef.current) setThumbQueue(missing);
   }, []);
 
   useEffect(() => {

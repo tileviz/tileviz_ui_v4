@@ -208,14 +208,25 @@ export function AppNavigator() {
             <VisualizerScreen />
           </View>
         )}
-        {/* Other screens: kept alive with display:none to avoid re-fetching data */}
-        {NON_VIZ_PAGES.map(({ key, element }) =>
-          visitedPages.has(key) ? (
-            <View key={key} style={{ flex: 1, display: activePage === key ? 'flex' : 'none' }}>
+        {/* Other screens:
+            - Web: kept alive with display:none (fast tab switch, no re-fetch)
+            - Native: unmount when inactive to free memory and prevent ANR */}
+        {NON_VIZ_PAGES.map(({ key, element }) => {
+          const isActive = activePage === key;
+          if (Platform.OS === 'web') {
+            return visitedPages.has(key) ? (
+              <View key={key} style={{ flex: 1, display: isActive ? 'flex' : 'none' }}>
+                {element}
+              </View>
+            ) : null;
+          }
+          // Native: only mount the active screen
+          return isActive ? (
+            <View key={key} style={{ flex: 1 }}>
               {element}
             </View>
-          ) : null
-        )}
+          ) : null;
+        })}
       </View>
       {showBottomTabs && <BottomTabBar />}
     </View>

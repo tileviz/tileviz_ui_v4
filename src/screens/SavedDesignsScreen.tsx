@@ -1,5 +1,5 @@
 // SavedDesignsScreen — wired to /api/rooms (#10 session fix)
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, useWindowDimensions, Image,
@@ -28,6 +28,8 @@ export function SavedDesignsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roomFilter, setRoomFilter] = useState('all');
   const [searchTrie] = useState(() => new Trie());
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const numCols = width > 1200 ? 4 : width > 800 ? 3 : width > 500 ? 2 : 1;
 
@@ -54,13 +56,17 @@ export function SavedDesignsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-    // Progressive thumbnail loading — one setState per resolved thumbnail, never blocks UI
-    fetched.forEach(async d => {
-      try {
-        const uri = await loadThumbnail(d.id);
-        if (uri) setThumbnails(prev => ({ ...prev, [d.id]: uri }));
-      } catch { /* thumbnail missing — emoji placeholder shown */ }
-    });
+    // Load thumbnails in batches of 3 — avoids flooding the main thread
+    const BATCH = 3;
+    for (let i = 0; i < fetched.length; i += BATCH) {
+      if (!mountedRef.current) break;
+      await Promise.all(fetched.slice(i, i + BATCH).map(async d => {
+        try {
+          const uri = await loadThumbnail(d.id);
+          if (uri && mountedRef.current) setThumbnails(prev => ({ ...prev, [d.id]: uri }));
+        } catch { /* thumbnail missing — emoji placeholder shown */ }
+      }));
+    }
   }, [tiles.length, setTiles]);
 
   useEffect(() => {

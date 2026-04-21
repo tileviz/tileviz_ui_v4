@@ -8,7 +8,7 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import {
   View, StyleSheet, TouchableOpacity, Text,
-  ActivityIndicator, Platform, Animated, PanResponder,
+  ActivityIndicator, Platform, Animated, PanResponder, AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as THREE from 'three';
@@ -567,6 +567,24 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
   const nativeTop = controlsTopOffset ?? 52;
   const { GLView } = require('expo-gl');
   const configRef = useRef(config);
+  // Track mount state and animation frame so the loop can be stopped on unmount
+  const mountedRef = useRef(true);
+  const animIdRef  = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    // Pause the render loop when the OS backgrounds the app to prevent ANR
+    const sub = AppState.addEventListener('change', next => {
+      appStateRef.current = next;
+    });
+    return () => {
+      mountedRef.current = false;
+      cancelAnimationFrame(animIdRef.current);
+      sub.remove();
+    };
+  }, []);
+
   const stateRef = useRef<{
     bundle: SceneBundle;
     roomGroup: THREE.Group | null;
@@ -665,7 +683,10 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
     }
 
     const loop = () => {
-      requestAnimationFrame(loop);
+      if (!mountedRef.current) return; // Stop when component unmounts
+      animIdRef.current = requestAnimationFrame(loop);
+      // Skip rendering when app is backgrounded to prevent ANR
+      if (appStateRef.current !== 'active') return;
       if (state.roomGroup && state.autoRotate) {
         state.roomGroup.rotation.y += 0.003;
       }

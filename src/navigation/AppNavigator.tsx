@@ -37,6 +37,11 @@ export function AppNavigator() {
   // display:'none' hides inactive screens without unmounting — preserves state & avoids re-fetches.
   const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
 
+  // Remount key for Visualizer — increments each time user navigates TO it so the
+  // WebGL canvas is always recreated fresh (avoids context loss from display:none).
+  const [vizMountKey, setVizMountKey] = useState(0);
+  const prevActivePage = useRef(activePage);
+
   // Track newly visited pages to mount them (but never unmount once mounted)
   useEffect(() => {
     setVisitedPages(prev => {
@@ -45,6 +50,14 @@ export function AppNavigator() {
       next.add(activePage);
       return next;
     });
+  }, [activePage]);
+
+  // Increment vizMountKey each time user navigates TO the visualizer
+  useEffect(() => {
+    if (activePage === 'visualizer' && prevActivePage.current !== 'visualizer') {
+      setVizMountKey(k => k + 1);
+    }
+    prevActivePage.current = activePage;
   }, [activePage]);
 
   // Reset visited pages on logout so stale data doesn't persist across user switches
@@ -172,11 +185,12 @@ export function AppNavigator() {
   }
 
   // ── Main app — lazy persistent mounting ─────────────────────
-  // Each screen is mounted once on first visit and kept alive with display:'none'
-  // when inactive. This eliminates re-fetch on every tab switch.
+  // Visualizer remounts on every visit to guarantee a fresh WebGL context
+  // (display:none can cause context loss on return navigation).
+  // All other screens are kept alive with display:'none' to avoid re-fetches.
   const headerHeight = isPhone ? 52 : 62;
-  const PAGES: { key: string; element: React.ReactElement }[] = [
-    { key: 'visualizer', element: <VisualizerScreen /> },
+
+  const NON_VIZ_PAGES: { key: string; element: React.ReactElement }[] = [
     { key: 'catalog',    element: <CatalogScreen /> },
     { key: 'saved',      element: <SavedDesignsScreen /> },
     { key: 'inventory',  element: <InventoryScreen /> },
@@ -188,7 +202,14 @@ export function AppNavigator() {
     <View style={{ flex: 1, backgroundColor: Colors.surface }}>
       <AppHeader onLogout={handleLogout} />
       <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
-        {PAGES.map(({ key, element }) =>
+        {/* Visualizer: mount only when active so WebGL context is always fresh */}
+        {activePage === 'visualizer' && (
+          <View key={`visualizer-${vizMountKey}`} style={{ flex: 1 }}>
+            <VisualizerScreen />
+          </View>
+        )}
+        {/* Other screens: kept alive with display:none to avoid re-fetching data */}
+        {NON_VIZ_PAGES.map(({ key, element }) =>
           visitedPages.has(key) ? (
             <View key={key} style={{ flex: 1, display: activePage === key ? 'flex' : 'none' }}>
               {element}

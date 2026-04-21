@@ -3,14 +3,13 @@
 //  Shown on phone screens (<600px). Replaces top header tabs.
 // ============================================================
 
-import React, { useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAppStore } from '../store/app.store';
 import { useAuthStore } from '../store/auth.store';
 import { NavPage, UserRole } from '../types';
-import { useTutorial } from '../tutorial/TutorialContext';
 
 interface TabItem {
   key: NavPage;
@@ -31,29 +30,10 @@ const MORE_TABS: TabItem[] = [
   { key: 'admin',     icon: '◉',  label: 'Admin',     roles: ['admin'] },
 ];
 
-// Tutorial target key map for nav tabs
-const TAB_TUTORIAL_KEYS: Partial<Record<NavPage, string>> = {
-  catalog:    'nav_catalog',
-  visualizer: 'nav_visualizer',
-};
-
-function TutorialTabRef({ navKey, children }: { navKey: NavPage; children: (ref: React.RefObject<any>) => React.ReactNode }) {
-  const tutKey = TAB_TUTORIAL_KEYS[navKey];
-  const { registerTarget, unregisterTarget } = useTutorial();
-  const ref = useRef<any>(null);
-  useEffect(() => {
-    if (!tutKey) return;
-    registerTarget(tutKey, ref);
-    return () => unregisterTarget(tutKey);
-  }, [tutKey]);
-  return <>{children(tutKey ? ref : { current: null })}</>;
-}
-
 export function BottomTabBar() {
   const insets = useSafeAreaInsets();
   const { activePage, setActivePage } = useAppStore();
   const { user } = useAuthStore();
-  const { completeStep } = useTutorial();
 
   // Filter tabs by user role
   const visibleTabs = PRIMARY_TABS.filter(
@@ -74,30 +54,21 @@ export function BottomTabBar() {
     <View style={[s.container, { paddingBottom: Math.max(insets.bottom, 6) }]}>
       {tabs.map(tab => {
         const isActive = activePage === tab.key;
-        const tutKey = TAB_TUTORIAL_KEYS[tab.key];
         return (
-          <TutorialTabRef key={tab.key} navKey={tab.key}>
-            {(tabRef) => (
-              <TouchableOpacity
-                ref={tabRef}
-                collapsable={false}
-                onPress={() => {
-                  setActivePage(tab.key);
-                  if (tutKey) completeStep(tutKey);
-                }}
-                style={s.tab}
-                activeOpacity={0.7}
-              >
-                <View style={[s.iconWrap, isActive && s.iconWrapActive]}>
-                  <Text style={[s.icon, isActive && s.iconActive]}>{tab.icon}</Text>
-                </View>
-                <Text style={[s.label, isActive && s.labelActive]} numberOfLines={1}>
-                  {tab.label}
-                </Text>
-                {isActive && <View style={s.indicator} />}
-              </TouchableOpacity>
-            )}
-          </TutorialTabRef>
+          <TouchableOpacity
+            key={tab.key}
+            onPress={() => setActivePage(tab.key)}
+            style={s.tab}
+            activeOpacity={0.7}
+          >
+            <View style={[s.iconWrap, isActive && s.iconWrapActive]}>
+              <Text style={[s.icon, isActive && s.iconActive]}>{tab.icon}</Text>
+            </View>
+            <Text style={[s.label, isActive && s.labelActive]} numberOfLines={1}>
+              {tab.label}
+            </Text>
+            {isActive && <View style={s.indicator} />}
+          </TouchableOpacity>
         );
       })}
     </View>
@@ -106,68 +77,61 @@ export function BottomTabBar() {
 
 const s = StyleSheet.create({
   container: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 68,
     flexDirection: 'row',
     backgroundColor: Colors.primary,
     borderTopWidth: 1,
     borderTopColor: 'rgba(124,111,247,0.15)',
-    paddingTop: 6,
-    // ── Stick to bottom of screen ──
-    position: Platform.OS === 'web' ? ('fixed' as any) : 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    ...(Platform.OS === 'web' ? {
-      boxShadow: '0 -2px 12px rgba(0,0,0,0.3)',
-    } as any : {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 10,
-      elevation: 10,
-    }),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 12,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
-    position: 'relative',
+    paddingTop: 6,
   },
   iconWrap: {
     width: 36,
-    height: 28,
-    borderRadius: 14,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
   iconWrapActive: {
-    backgroundColor: 'rgba(124,111,247,0.18)',
+    backgroundColor: 'rgba(124,111,247,0.15)',
   },
   icon: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.38)',
+    fontSize: 20,
+    color: 'rgba(255,255,255,0.55)',
   },
   iconActive: {
-    color: Colors.accent,
+    color: Colors.gold,
   },
   label: {
     fontSize: 10,
+    color: 'rgba(255,255,255,0.55)',
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.38)',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
   labelActive: {
-    color: '#E0E3F5',
+    color: Colors.gold,
     fontWeight: '600',
   },
   indicator: {
     position: 'absolute',
     top: 0,
-    width: 20,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: Colors.accent,
+    width: 32,
+    height: 3,
+    backgroundColor: Colors.gold,
+    borderRadius: 2,
   },
 });

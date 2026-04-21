@@ -7,8 +7,6 @@
 // ============================================================
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { View, Platform } from 'react-native';
-import { TutorialProvider } from '../tutorial/TutorialContext';
-import { TutorialSpotlight } from '../tutorial/TutorialSpotlight';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAuthStore } from '../store/auth.store';
@@ -187,21 +185,18 @@ export function AppNavigator() {
   ];
 
   return (
-    <TutorialProvider>
-      <View style={{ flex: 1, backgroundColor: Colors.surface }}>
-        <AppHeader onLogout={handleLogout} />
-        <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
-          {PAGES.map(({ key, element }) =>
-            visitedPages.has(key) ? (
-              <View key={key} style={{ flex: 1, display: activePage === key ? 'flex' : 'none' }}>
-                {element}
-              </View>
-            ) : null
-          )}
-        </View>
-        {showBottomTabs && <BottomTabBar />}
-        <TutorialSpotlight />
+    <View style={{ flex: 1, backgroundColor: Colors.surface }}>
+      <AppHeader onLogout={handleLogout} />
+      <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
+        {PAGES.map(({ key, element }) =>
+          visitedPages.has(key) ? (
+            <View key={key} style={{ flex: 1, display: activePage === key ? 'flex' : 'none' }}>
+              {element}
+            </View>
+          ) : null
+        )}
       </View>
-    </TutorialProvider>
+      {showBottomTabs && <BottomTabBar />}
+    </View>
   );
 }

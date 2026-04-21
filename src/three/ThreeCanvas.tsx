@@ -17,7 +17,6 @@ import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScen
 import { buildRoom } from './room-builder';
 import { clearTextureCache } from './materials';
 import { RoomType, Tile, ZoneRow } from '../types';
-import { useTutorialTarget } from '../tutorial/TutorialContext';
 
 const styles = StyleSheet.create({
   wrap:       { flex: 1 },
@@ -123,9 +122,8 @@ function Tooltip({ label, visible }: { label: string; visible: boolean }) {
 }
 
 // ── Control button — dark navy theme + hover/press tooltip ───
-function CtrlBtn({ icon, label, onPress, active, disabled, tutorialKey }: { icon: string; label: string; onPress: () => void; active?: boolean; disabled?: boolean; tutorialKey?: string }) {
+function CtrlBtn({ icon, label, onPress, active, disabled }: { icon: string; label: string; onPress: () => void; active?: boolean; disabled?: boolean }) {
   const [show, setShow] = useState(false);
-  const { ref: tutRef, isCurrentTarget, onTutorialPress } = useTutorialTarget(tutorialKey ?? '');
 
   const webHoverProps = Platform.OS === 'web' ? {
     onMouseEnter: () => !disabled && setShow(true),
@@ -135,17 +133,14 @@ function CtrlBtn({ icon, label, onPress, active, disabled, tutorialKey }: { icon
   return (
     <View style={{ alignItems: 'flex-end' }}>
       <TouchableOpacity
-        ref={tutorialKey ? tutRef : undefined}
         collapsable={false}
         onPress={() => {
           if (disabled) return;
           onPress();
-          if (tutorialKey) onTutorialPress();
         }}
         onPressIn={() => !disabled && setShow(true)}
         onPressOut={() => setShow(false)}
-        style={[styles.ctrlBtn, active && styles.ctrlBtnActive, disabled && styles.ctrlBtnDisabled,
-          isCurrentTarget && { borderColor: '#7C6FF7', borderWidth: 2 }]}
+        style={[styles.ctrlBtn, active && styles.ctrlBtnActive, disabled && styles.ctrlBtnDisabled]}
         activeOpacity={disabled ? 1 : 0.75}
         {...webHoverProps}
       >
@@ -524,15 +519,15 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
   };
 
   const BTNS = [
-    { icon: '👁', label: 'Interior View', fn: toggleInterior, active: interiorMode, tutorialKey: 'btn_interior' },
-    { icon: '◁', label: 'Rotate Left',   fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw-=0.28;updateCameraFromYawPitch(s.bundle.camera,s.yaw,s.pitch);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y-=0.28;setAutoRotate(false);} } }, tutorialKey: 'btn_rotate_left' },
+    { icon: '👁', label: 'Interior View', fn: toggleInterior, active: interiorMode },
+    { icon: '◁', label: 'Rotate Left',   fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw-=0.28;updateCameraFromYawPitch(s.bundle.camera,s.yaw,s.pitch);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y-=0.28;setAutoRotate(false);} } } },
     { icon: '▷', label: 'Rotate Right',  fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.yaw+=0.28;updateCameraFromYawPitch(s.bundle.camera,s.yaw,s.pitch);}else if(s.roomGroup){s.autoRotate=false;s.roomGroup.rotation.y+=0.28;setAutoRotate(false);} } } },
-    { icon: '+', label: 'Zoom In',       fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.max(35,s.bundle.camera.fov-5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(0.88);s.bundle.camera.position.clampLength(1.5,30);} } }, tutorialKey: 'btn_zoom_in' },
+    { icon: '+', label: 'Zoom In',       fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.max(35,s.bundle.camera.fov-5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(0.88);s.bundle.camera.position.clampLength(1.5,30);} } } },
     { icon: '−', label: 'Zoom Out',      fn: () => { const s=stateRef.current; if(s){if(s.interiorMode){s.bundle.camera.fov=Math.min(100,s.bundle.camera.fov+5);s.bundle.camera.updateProjectionMatrix();}else{s.bundle.camera.position.multiplyScalar(1.12);s.bundle.camera.position.clampLength(1.5,30);} } } },
-    { icon: '⊙', label: 'Reset View',    fn: () => { const s=stateRef.current; const c=configRef.current; if(s&&c){if(s.interiorMode){s.yaw=0;s.pitch=0;s.bundle.camera.fov=75;setupInteriorCamera(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);}else{frameCameraToRoom(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);if(s.roomGroup)s.roomGroup.rotation.y=0;s.autoRotate=true;setAutoRotate(true);} } }, tutorialKey: 'btn_reset' },
+    { icon: '⊙', label: 'Reset View',    fn: () => { const s=stateRef.current; const c=configRef.current; if(s&&c){if(s.interiorMode){s.yaw=0;s.pitch=0;s.bundle.camera.fov=75;setupInteriorCamera(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);}else{frameCameraToRoom(s.bundle.camera,c.widthFt,c.lengthFt,c.heightFt);if(s.roomGroup)s.roomGroup.rotation.y=0;s.autoRotate=true;setAutoRotate(true);} } } },
     { icon: autoRotate?'⏸':'▶', label: interiorMode?(autoRotate?'Freeze View':'Unfreeze View'):autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
-    { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){s.bundle.hemi.intensity=s.lightOn?1.2:0.55;s.bundle.sun.intensity=s.lightOn?0.6:0;s.bundle.pointLight.intensity=s.lightOn?1.5:0.1;}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} }, tutorialKey: 'btn_light' },
-    { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} }, tutorialKey: 'btn_objects' },
+    { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){s.bundle.hemi.intensity=s.lightOn?1.2:0.55;s.bundle.sun.intensity=s.lightOn?0.6:0;s.bundle.pointLight.intensity=s.lightOn?1.5:0.1;}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} } },
+    { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} } },
     ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
@@ -548,7 +543,7 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
       {ready && (
         <>
           <View style={[styles.controls, { top: Platform.OS === 'web' ? 8 : nativeTop, bottom: insets.bottom + 6 }]}>
-            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} disabled={(b as any).disabled} tutorialKey={(b as any).tutorialKey} />)}
+            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} disabled={(b as any).disabled} />)}
           </View>
           {interiorMode && (
             <View style={styles.badge}>
@@ -815,14 +810,14 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
 
   // ── Control buttons (includes 360° panorama) ────────────────
   const BTNS = [
-    { icon: '👁', label: '360° View', fn: toggleInterior, active: interiorMode, tutorialKey: 'btn_interior' },
+    { icon: '👁', label: '360° View', fn: toggleInterior, active: interiorMode },
     { icon: '◁', label: 'Rotate Left', fn: () => {
       const s = stateRef.current;
       if (s) {
         if (s.interiorMode) { s.yaw -= 0.28; updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch); }
         else if (s.roomGroup) { s.autoRotate = false; s.roomGroup.rotation.y -= 0.28; setAutoRotate(false); }
       }
-    }, tutorialKey: 'btn_rotate_left' },
+    }},
     { icon: '▷', label: 'Rotate Right', fn: () => {
       const s = stateRef.current;
       if (s) {
@@ -836,7 +831,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
         if (s.interiorMode) { s.bundle.camera.fov = Math.max(35, s.bundle.camera.fov - 5); s.bundle.camera.updateProjectionMatrix(); }
         else { s.bundle.camera.position.multiplyScalar(0.88); s.bundle.camera.position.clampLength(1.5, 30); }
       }
-    }, tutorialKey: 'btn_zoom_in' },
+    }},
     { icon: '−', label: 'Zoom Out', fn: () => {
       const s = stateRef.current;
       if (s) {
@@ -857,7 +852,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
           s.autoRotate = true; setAutoRotate(true);
         }
       }
-    }, tutorialKey: 'btn_reset' },
+    }},
     { icon: autoRotate ? '⏸' : '▶', label: interiorMode ? (autoRotate ? 'Freeze View' : 'Unfreeze View') : autoRotate ? 'Pause' : 'Resume', fn: () => {
       const s = stateRef.current;
       if (s) { s.autoRotate = !s.autoRotate; setAutoRotate(s.autoRotate); }
@@ -876,11 +871,11 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
         }
         setLightOnUI(s.lightOn);
       }
-    }, tutorialKey: 'btn_light' },
+    }},
     { icon: objectsOn ? '🚫' : '🪑', label: objectsOn ? 'Hide Objects' : 'Show Objects', active: !objectsOn, fn: () => {
       const s = stateRef.current;
       if (s?.fixturesGroup) { s.objectsOn = !s.objectsOn; s.fixturesGroup.visible = s.objectsOn; setObjectsOn(s.objectsOn); }
-    }, tutorialKey: 'btn_objects' },
+    }},
     ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
@@ -896,7 +891,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
       {ready && (
         <>
           <View style={[styles.controls, { top: nativeTop, bottom: insets.bottom + 6 }]}>
-            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} disabled={(b as any).disabled} tutorialKey={(b as any).tutorialKey} />)}
+            {BTNS.map((b, i) => <CtrlBtn key={i} icon={b.icon} label={b.label} onPress={b.fn} active={b.active} disabled={(b as any).disabled} />)}
           </View>
           {interiorMode && (
             <View style={styles.badge}>

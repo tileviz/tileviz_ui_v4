@@ -12,8 +12,6 @@ import { ThreeCanvas, RoomBuildConfig, CaptureScreenshotFn } from '../three/Thre
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES, KITCHEN_COUNTER_FT } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
-import { TutorialOverlay, shouldShowTutorial } from '../components/TutorialOverlay';
-import { useTutorial } from '../tutorial/TutorialContext';
 import { showAlert } from '../utils/alert';
 import { shareDesignPdf } from '../utils/sharePdf';
 import { consumePendingCaptureId } from '../utils/pendingCapture';
@@ -184,15 +182,9 @@ export function VisualizerScreen() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const captureRef = useRef<CaptureScreenshotFn | null>(null);
-  const { registerTarget, unregisterTarget, completeStep } = useTutorial();
   const saveDesignRef = useRef<any>(null);
-  useEffect(() => {
-    registerTarget('save_design', saveDesignRef);
-    return () => unregisterTarget('save_design');
-  }, []);
   const [saveScreenshot, setSaveScreenshot] = useState<string | null>(null);
   const [infoBarBottom, setInfoBarBottom] = useState(52);
-  const [showTutorial, setShowTutorial] = useState(false);
   const handleCaptureReady = useCallback((fn: CaptureScreenshotFn) => {
     console.log('[TileViz] Capture function registered');
     captureRef.current = fn;
@@ -226,14 +218,6 @@ export function VisualizerScreen() {
     zoneRows,
     wallColor,
   }), [roomType, dimensions.width, dimensions.length, dimensions.height, tw, th, selectedTile, zoneRows, wallColor]);
-
-  // Show tutorial once on first launch (slight delay so canvas loads first)
-  useEffect(() => {
-    const t = setTimeout(() => {
-      shouldShowTutorial().then(show => { if (show) setShowTutorial(true); });
-    }, 1800);
-    return () => clearTimeout(t);
-  }, []);
 
   async function handleSave() {
     setShowSettings(false);
@@ -347,11 +331,11 @@ export function VisualizerScreen() {
             <Text style={{ fontSize: 16 }}>📤</Text>
           </TouchableOpacity>
 
-          {/* Save FAB — tutorial target */}
+          {/* Save FAB */}
           <TouchableOpacity
             ref={saveDesignRef}
             collapsable={false}
-            onPress={() => { handleSave(); completeStep('save_design'); }}
+            onPress={handleSave}
             style={s.settingsFab}
             activeOpacity={0.8}
           >
@@ -397,9 +381,6 @@ export function VisualizerScreen() {
           defaultName={defaultName}
           screenshotDataUri={saveScreenshot}
         />
-
-        {/* First-time tutorial overlay */}
-        {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
       </View>
     );
   }
@@ -453,7 +434,7 @@ export function VisualizerScreen() {
               <View ref={saveDesignRef} collapsable={false}>
                 <Button
                   label="💾 Save"
-                  onPress={() => { handleSave(); completeStep('save_design'); }}
+                  onPress={handleSave}
                   variant="outline"
                   size="sm"
                   style={{ borderColor: 'rgba(255,255,255,0.3)' }}
@@ -474,9 +455,6 @@ export function VisualizerScreen() {
         defaultName={defaultName}
         screenshotDataUri={saveScreenshot}
       />
-
-      {/* First-time tutorial overlay */}
-      {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
     </View>
   );
 }
@@ -598,4 +576,3 @@ const s = StyleSheet.create({
   toastIcon: { fontSize: 16 },
   toastTxt: { fontSize: 14, fontWeight: '600', color: '#fff' },
 });
-

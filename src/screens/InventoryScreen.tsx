@@ -147,7 +147,7 @@ export function InventoryScreen() {
     // Use unified load design method with callback
     loadDesign(design, setSelectedTile, tiles, () => {
       showAlert('Design Loaded', `"${item.name}" loaded into Visualizer with all saved features.`);
-    });
+    }, 'inventory');
   }
 
   function handleViewDetails(item: InventoryItem) {

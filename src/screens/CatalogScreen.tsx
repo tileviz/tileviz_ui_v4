@@ -1,6 +1,6 @@
 // CatalogScreen — split layout: tile grid (left) + sliding sidebar (right)
 // Mobile: Zone Arena shown as bottom-sheet modal; auto-closes on row tap
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
   StyleSheet, RefreshControl, ScrollView, Image,
@@ -38,6 +38,7 @@ export function CatalogScreen() {
   const { zoneRows, setZoneRows, setActivePage } = useAppStore();
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
+  const [previewTile, setPreviewTile] = useState<Tile | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,10 +123,9 @@ export function CatalogScreen() {
       return;
     }
 
-    // If sidebar isn't open, show a toast guiding the user
+    // If sidebar isn't open, show tile preview popup
     if (!sidebarOpen) {
-      setSelectedTile(tile);
-      showAlert('Tile Selected', `"${tile.name}" selected. Open Zone Arena to assign it to a row.`);
+      setPreviewTile(tile);
       return;
     }
 
@@ -388,9 +388,220 @@ export function CatalogScreen() {
 
       {/* ─── Upload Modal (only valid modal — it's a form) ─── */}
       <UploadTileModal visible={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={load} />
+
+      {/* ─── Tile Preview Modal (when Zone Arena is closed) ─── */}
+      <TilePreviewModal
+        tile={previewTile}
+        onClose={() => setPreviewTile(null)}
+        onOpenArena={() => {
+          const tile = previewTile;
+          setPreviewTile(null);
+          if (tile) setSelectedTile(tile);
+          setSidebarOpen(true);
+        }}
+      />
     </View>
   );
 }
+
+/* ─── Tile Preview Modal ─── */
+function TilePreviewModal({
+  tile,
+  onClose,
+  onOpenArena,
+}: {
+  tile: Tile | null;
+  onClose: () => void;
+  onOpenArena: () => void;
+}) {
+  if (!tile) return null;
+
+  const sizeLabel = `${tile.widthIn}" x ${tile.heightIn}"`;
+  const categoryLabel = tile.category
+    ? tile.category.charAt(0).toUpperCase() + tile.category.slice(1)
+    : '';
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={pv.backdrop} onPress={onClose}>
+        <Pressable style={pv.card} onPress={() => {}}>
+          {/* Close button */}
+          <TouchableOpacity onPress={onClose} style={pv.closeBtn} activeOpacity={0.7}>
+            <Text style={pv.closeTxt}>✕</Text>
+          </TouchableOpacity>
+
+          {/* Tile image */}
+          <View style={pv.imageBox}>
+            {tile.imageUri ? (
+              <Image source={{ uri: tile.imageUri }} style={pv.image} />
+            ) : (
+              <View style={[pv.swatch, { backgroundColor: tile.color || '#ccc' }]} />
+            )}
+          </View>
+
+          {/* Tile name */}
+          <Text style={pv.tileName} numberOfLines={2}>{tile.name}</Text>
+
+          {/* Info grid */}
+          <View style={pv.infoGrid}>
+            {categoryLabel ? (
+              <View style={pv.infoItem}>
+                <Text style={pv.infoLabel}>Category</Text>
+                <Text style={pv.infoValue}>{categoryLabel}</Text>
+              </View>
+            ) : null}
+            <View style={pv.infoItem}>
+              <Text style={pv.infoLabel}>Size</Text>
+              <Text style={pv.infoValue}>{sizeLabel}</Text>
+            </View>
+            {tile.color ? (
+              <View style={pv.infoItem}>
+                <Text style={pv.infoLabel}>Color</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={[pv.colorDot, { backgroundColor: tile.color }]} />
+                  <Text style={pv.infoValue}>{tile.color}</Text>
+                </View>
+              </View>
+            ) : null}
+            {tile.pricePerSqFt > 0 ? (
+              <View style={pv.infoItem}>
+                <Text style={pv.infoLabel}>Price</Text>
+                <Text style={pv.infoValue}>{tile.pricePerSqFt}/sq.ft</Text>
+              </View>
+            ) : null}
+            {tile.manufacturer ? (
+              <View style={pv.infoItem}>
+                <Text style={pv.infoLabel}>Brand</Text>
+                <Text style={pv.infoValue}>{tile.manufacturer}</Text>
+              </View>
+            ) : null}
+            {tile.roomType ? (
+              <View style={pv.infoItem}>
+                <Text style={pv.infoLabel}>Room</Text>
+                <Text style={pv.infoValue}>
+                  {tile.roomType.charAt(0).toUpperCase() + tile.roomType.slice(1)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Actions */}
+          <View style={pv.actions}>
+            <TouchableOpacity style={pv.arenaBtn} onPress={onOpenArena} activeOpacity={0.8}>
+              <Text style={pv.arenaBtnTxt}>Open Zone Arena</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={pv.dismissBtn} onPress={onClose} activeOpacity={0.8}>
+              <Text style={pv.dismissBtnTxt}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const pv = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: Colors.white,
+    borderRadius: Radii.xl,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 20px 60px rgba(0,0,0,0.25)' } as any
+      : Shadows.modal),
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  imageBox: {
+    width: '100%',
+    height: 220,
+    backgroundColor: Colors.surface2,
+  },
+  image: { width: '100%', height: '100%', resizeMode: 'cover' },
+  swatch: { width: '100%', height: '100%' },
+  tileName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Colors.text1,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  infoGrid: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  infoLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Colors.text3,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  infoValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text1,
+  },
+  colorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 6,
+  },
+  arenaBtn: {
+    flex: 1,
+    backgroundColor: Colors.gold,
+    borderRadius: Radii.md,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  arenaBtnTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  dismissBtn: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.md,
+    paddingVertical: 11,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  dismissBtnTxt: { fontSize: 13, fontWeight: '600', color: Colors.text2 },
+});
 
 /* ─── Styles ─── */
 const s = StyleSheet.create({

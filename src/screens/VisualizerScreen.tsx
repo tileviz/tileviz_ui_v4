@@ -6,18 +6,21 @@ import { Colors, Radii, Shadows } from '../config/theme';
 import { Button } from '../components/Button';
 import { useAppStore } from '../store/app.store';
 import { useCatalogStore } from '../store/catalog.store';
+import { useAuthStore } from '../store/auth.store';
 import { useLayout } from '../hooks/useLayout';
 import { RoomType } from '../types';
 import { ThreeCanvas, RoomBuildConfig, CaptureScreenshotFn } from '../three/ThreeCanvas';
 import { calcTileStats, ROOM_EMOJIS } from '../utils/format';
 import { ROOM_TYPES, TILE_SIZES, KITCHEN_COUNTER_FT } from '../config';
 import { SaveDesignModal } from '../components/SaveDesignModal';
+import { SaveInventoryModal } from '../components/SaveInventoryModal';
+import { CreateInventoryPayload } from '../api';
 import { showAlert } from '../utils/alert';
 import { shareDesignPdf } from '../utils/sharePdf';
 import { consumePendingCaptureId } from '../utils/pendingCapture';
 import { saveThumbnail } from '../utils/thumbnail';
 
-// 35 curated wall colors — common Indian home paint palette
+// 55 curated wall colors — common Indian home paint palette
 const WALL_COLORS: Array<{ name: string; hex: string }> = [
   { name: 'White', hex: '#ffffff' }, { name: 'Snow', hex: '#fffafa' }, { name: 'Ivory', hex: '#fffff0' },
   { name: 'Cream', hex: '#f0ebe4' }, { name: 'Linen', hex: '#faf0e6' }, { name: 'Beige', hex: '#f5f5dc' },
@@ -31,6 +34,14 @@ const WALL_COLORS: Array<{ name: string; hex: string }> = [
   { name: 'Terracotta', hex: '#e2725b' }, { name: 'Salmon', hex: '#fa8072' }, { name: 'Warm Gray', hex: '#a09080' },
   { name: 'Cool Gray', hex: '#aeb2b5' }, { name: 'Silver', hex: '#c0c0c0' }, { name: 'Ash', hex: '#b2beb5' },
   { name: 'Pale Green', hex: '#98fb98' }, { name: 'Aqua', hex: '#b2dfdb' },
+  // 20 additional colors
+  { name: 'Champagne', hex: '#f7e7ce' }, { name: 'Bisque', hex: '#ffe4c4' }, { name: 'Apricot', hex: '#fbceb1' },
+  { name: 'Marigold', hex: '#eaa221' }, { name: 'Turmeric', hex: '#e6a817' }, { name: 'Mustard', hex: '#e1ad01' },
+  { name: 'Pistachio', hex: '#93c572' }, { name: 'Celadon', hex: '#ace1af' }, { name: 'Teal Mist', hex: '#b2d8d8' },
+  { name: 'Duck Egg', hex: '#c4dfe6' }, { name: 'Steel Blue', hex: '#b0c4de' }, { name: 'Wisteria', hex: '#c9a0dc' },
+  { name: 'Mauve', hex: '#e0b0ff' }, { name: 'Dusty Rose', hex: '#dcae96' }, { name: 'Taupe', hex: '#b8a99a' },
+  { name: 'Mocha', hex: '#b89f8d' }, { name: 'Caramel', hex: '#c4956a' }, { name: 'Fog', hex: '#d7d0c5' },
+  { name: 'Pearl', hex: '#eae0c8' }, { name: 'Mist', hex: '#d6e4e1' },
 ];
 
 // ── Inline toast notification ─────────────────────────────────
@@ -169,17 +180,20 @@ function SidebarContent({
       </ScrollView>
 
       <View style={s.footer}>
-        <Button label="💾 Save Design" onPress={handleSave} fullWidth variant="outline" />
+        <Button label="💾 Save" onPress={handleSave} fullWidth variant="outline" />
       </View>
     </>
   );
 }
 
 export function VisualizerScreen() {
-  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage, clearDesign } = useAppStore();
+  const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage, clearDesign, loadedSnapshot, hasDesignChanged } = useAppStore();
   const { selectedTile, setSelectedTile } = useCatalogStore();
+  const { user } = useAuthStore();
   const { isPhone, isTablet } = useLayout();
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [showSavePicker, setShowSavePicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const captureRef = useRef<CaptureScreenshotFn | null>(null);
   const saveDesignRef = useRef<any>(null);
@@ -219,17 +233,58 @@ export function VisualizerScreen() {
     wallColor,
   }), [roomType, dimensions.width, dimensions.length, dimensions.height, tw, th, selectedTile, zoneRows, wallColor]);
 
+  const canSaveInventory = user?.role === 'admin' || user?.role === 'shop_owner';
+
   async function handleSave() {
     setShowSettings(false);
-    // Capture screenshot in background before opening modal
+    // Capture screenshot in background
     if (captureRef.current) {
       captureRef.current().then(uri => setSaveScreenshot(uri)).catch(() => {});
     }
+
+    // Check if this is a loaded design/inventory with no changes
+    if (loadedSnapshot && !hasDesignChanged()) {
+      showAlert(
+        'No Changes Detected',
+        'This design is identical to the saved version. Make some changes before saving again.'
+      );
+      return;
+    }
+
+    // If user can save inventory, show picker; otherwise go straight to design save
+    if (canSaveInventory) {
+      setShowSavePicker(true);
+    } else {
+      setShowSaveModal(true);
+    }
+  }
+
+  function handlePickDesign() {
+    setShowSavePicker(false);
     setShowSaveModal(true);
   }
 
+  function handlePickInventory() {
+    setShowSavePicker(false);
+    setShowInventoryModal(true);
+  }
+
   function handleDesignSaved() {
+    // Update snapshot so the same unchanged state can't be saved again
+    const fp = useAppStore.getState().getCurrentFingerprint();
+    useAppStore.setState({
+      loadedSnapshot: { sourceType: 'design', sourceId: 'just-saved', fingerprint: fp },
+    });
     setActivePage('saved');
+  }
+
+  function handleInventorySaved() {
+    // Update snapshot so the same unchanged state can't be saved again
+    const fp = useAppStore.getState().getCurrentFingerprint();
+    useAppStore.setState({
+      loadedSnapshot: { sourceType: 'inventory', sourceId: 'just-saved', fingerprint: fp },
+    });
+    setActivePage('inventory');
   }
 
   const handleResetDesign = useCallback(() => {
@@ -274,6 +329,25 @@ export function VisualizerScreen() {
     selectedTileImageUri: selectedTile?.imageUri ?? '',
     selectedTileColor:    selectedTile?.color    ?? '#cccccc',
   });
+
+  const getInventoryData = (): Omit<CreateInventoryPayload, 'name'> => {
+    const firstTile = zoneRows.find(r => r.tileId || r.tileName);
+    return {
+      roomType,
+      dimensions,
+      tileSize: selectedTileSize,
+      tileName: firstTile?.tileName,
+      tileColor: firstTile?.color,
+      tileImageUri: firstTile?.tileImageUri,
+      zoneRows,
+      wallColor,
+      selectedTileId: firstTile?.tileId,
+      selectedTileName: firstTile?.tileName,
+      selectedTileColor: firstTile?.color,
+      selectedTileImageUri: firstTile?.tileImageUri,
+      status: 'active',
+    };
+  };
 
   const defaultName = `${roomLabel} Design - ${new Date().toLocaleDateString()}`;
 
@@ -381,6 +455,23 @@ export function VisualizerScreen() {
           defaultName={defaultName}
           screenshotDataUri={saveScreenshot}
         />
+
+        {/* Save Inventory Modal */}
+        <SaveInventoryModal
+          visible={showInventoryModal}
+          onClose={() => setShowInventoryModal(false)}
+          onSuccess={handleInventorySaved}
+          designData={getInventoryData()}
+        />
+
+        {/* Save Picker Modal */}
+        <SavePickerModal
+          visible={showSavePicker}
+          onClose={() => setShowSavePicker(false)}
+          onPickDesign={handlePickDesign}
+          onPickInventory={handlePickInventory}
+          canSaveInventory={canSaveInventory}
+        />
       </View>
     );
   }
@@ -455,9 +546,189 @@ export function VisualizerScreen() {
         defaultName={defaultName}
         screenshotDataUri={saveScreenshot}
       />
+
+      {/* Save Inventory Modal */}
+      <SaveInventoryModal
+        visible={showInventoryModal}
+        onClose={() => setShowInventoryModal(false)}
+        onSuccess={handleInventorySaved}
+        designData={getInventoryData()}
+      />
+
+      {/* Save Picker Modal */}
+      <SavePickerModal
+        visible={showSavePicker}
+        onClose={() => setShowSavePicker(false)}
+        onPickDesign={handlePickDesign}
+        onPickInventory={handlePickInventory}
+        canSaveInventory={canSaveInventory}
+      />
     </View>
   );
 }
+
+/* ─── Save Picker Modal ─── */
+function SavePickerModal({
+  visible,
+  onClose,
+  onPickDesign,
+  onPickInventory,
+  canSaveInventory,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onPickDesign: () => void;
+  onPickInventory: () => void;
+  canSaveInventory: boolean;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={sp.backdrop} onPress={onClose}>
+        <Pressable style={sp.card} onPress={() => {}}>
+          {/* Header */}
+          <View style={sp.header}>
+            <Text style={sp.title}>Save As</Text>
+            <TouchableOpacity onPress={onClose} style={sp.closeBtn} activeOpacity={0.7}>
+              <Text style={sp.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Options */}
+          <View style={sp.body}>
+            {/* Save as Design */}
+            <TouchableOpacity style={sp.option} onPress={onPickDesign} activeOpacity={0.7}>
+              <View style={sp.optionIconBox}>
+                <Text style={sp.optionIcon}>📐</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={sp.optionLabel}>Save as Design</Text>
+                <Text style={sp.optionHint}>Save to your personal designs collection</Text>
+              </View>
+              <Text style={sp.arrow}>›</Text>
+            </TouchableOpacity>
+
+            {/* Save as Inventory */}
+            {canSaveInventory && (
+              <TouchableOpacity style={sp.option} onPress={onPickInventory} activeOpacity={0.7}>
+                <View style={[sp.optionIconBox, { backgroundColor: 'rgba(124,111,247,0.1)' }]}>
+                  <Text style={sp.optionIcon}>📦</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={sp.optionLabel}>Save as Inventory</Text>
+                  <Text style={sp.optionHint}>Save to shop inventory for catalog</Text>
+                </View>
+                <Text style={sp.arrow}>›</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Cancel */}
+          <View style={sp.footer}>
+            <TouchableOpacity style={sp.cancelBtn} onPress={onClose} activeOpacity={0.8}>
+              <Text style={sp.cancelTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const sp = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: Colors.white,
+    borderRadius: Radii.xl,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 20px 60px rgba(0,0,0,0.25)' } as any
+      : Shadows.modal),
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Colors.text1,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeTxt: { fontSize: 14, color: Colors.text3, fontWeight: '600' },
+  body: {
+    padding: 12,
+    gap: 8,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: Radii.lg,
+    backgroundColor: Colors.white,
+  },
+  optionIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: 'rgba(200,169,110,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionIcon: { fontSize: 20 },
+  optionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text1,
+  },
+  optionHint: {
+    fontSize: 11,
+    color: Colors.text3,
+    marginTop: 2,
+  },
+  arrow: {
+    fontSize: 22,
+    color: Colors.text3,
+    fontWeight: '300',
+  },
+  footer: {
+    padding: 12,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  cancelBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: Radii.md,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cancelTxt: { fontSize: 13, fontWeight: '600', color: Colors.text2 },
+});
 
 const s = StyleSheet.create({
   // ── Desktop sidebar ──────────────────────────

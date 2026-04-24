@@ -6,6 +6,36 @@ import { create } from 'zustand';
 import { RoomType, RoomDimensions, ZoneRow, SavedDesign, Tile } from '../types';
 import { ROOM_DEFAULTS } from '../config';
 
+// Fingerprint of design-relevant state — used to detect changes
+export interface DesignFingerprint {
+  roomType:         RoomType;
+  dimensions:       RoomDimensions;
+  selectedTileSize: string;
+  wallColor:        string;
+  zoneRows:         ZoneRow[];
+}
+
+// Snapshot captured when a design/inventory is loaded
+export interface LoadedSnapshot {
+  sourceType:  'design' | 'inventory';
+  sourceId:    string;
+  fingerprint: string;   // JSON-stringified DesignFingerprint
+}
+
+function buildFingerprint(state: DesignFingerprint): string {
+  // Stable serialisation: sort zoneRow keys so order doesn't matter
+  const rows = state.zoneRows
+    .map(r => ({ ...r }))
+    .sort((a, b) => `${a.wallKey}:${a.rowIndex}`.localeCompare(`${b.wallKey}:${b.rowIndex}`));
+  return JSON.stringify({
+    roomType: state.roomType,
+    dimensions: state.dimensions,
+    selectedTileSize: state.selectedTileSize,
+    wallColor: state.wallColor,
+    zoneRows: rows,
+  });
+}
+
 interface AppState {
   // Room config
   roomType:         RoomType;
@@ -32,10 +62,19 @@ interface AppState {
   setActivePage:    (p: string) => void;
 
   // Load complete design (unified method)
-  loadDesign:       (design: SavedDesign, setSelectedTile?: (tile: Tile | null) => void, availableTiles?: Tile[], onComplete?: () => void) => void;
+  loadDesign:       (design: SavedDesign, setSelectedTile?: (tile: Tile | null) => void, availableTiles?: Tile[], onComplete?: () => void, sourceType?: 'design' | 'inventory') => void;
 
   // Clear design state (for starting fresh)
   clearDesign:      () => void;
+
+  // Loaded snapshot for dirty-checking
+  loadedSnapshot:   LoadedSnapshot | null;
+
+  // Get current fingerprint string
+  getCurrentFingerprint: () => string;
+
+  // Check if current state has changed from the loaded snapshot
+  hasDesignChanged: () => boolean;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -59,8 +98,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   activePage:       'visualizer',
   setActivePage:    (activePage)       => set({ activePage }),
 
+  // Loaded snapshot
+  loadedSnapshot:   null,
+
+  getCurrentFingerprint: () => {
+    const s = get();
+    return buildFingerprint({
+      roomType: s.roomType,
+      dimensions: s.dimensions,
+      selectedTileSize: s.selectedTileSize,
+      wallColor: s.wallColor,
+      zoneRows: s.zoneRows,
+    });
+  },
+
+  hasDesignChanged: () => {
+    const s = get();
+    if (!s.loadedSnapshot) return true; // no snapshot means fresh design — always allow save
+    return s.getCurrentFingerprint() !== s.loadedSnapshot.fingerprint;
+  },
+
   // Load a complete design with all features
-  loadDesign: (design, setSelectedTile, availableTiles = [], onComplete) => {
+  loadDesign: (design, setSelectedTile, availableTiles = [], onComplete, sourceType = 'design') => {
     // First, set all room configuration in a single atomic update
     const updates: Partial<AppState> = {
       roomType: design.roomType,
@@ -71,6 +130,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
 
     set(updates);
+
+    // Capture snapshot AFTER state is set so fingerprint matches loaded state
+    const fp = buildFingerprint({
+      roomType: design.roomType,
+      dimensions: design.dimensions,
+      selectedTileSize: design.selectedTileSize || '12x12',
+      wallColor: design.wallColor || '#f0ebe4',
+      zoneRows: design.zoneRows || [],
+    });
+    set({
+      loadedSnapshot: {
+        sourceType,
+        sourceId: design.id,
+        fingerprint: fp,
+      },
+    });
 
     // Use setTimeout to ensure tile selection happens after state is committed
     setTimeout(() => {
@@ -123,5 +198,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     wallColor: '#f0ebe4',
     zoneRows: [],
     focusedZoneKey: null,
+    loadedSnapshot: null,
   }),
 }));

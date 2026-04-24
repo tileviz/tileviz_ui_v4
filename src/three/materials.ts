@@ -178,17 +178,23 @@ export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,f
 }
 
 export function resolveRowMat(row:any,tile:any,repX:number,repY:number):THREE.MeshStandardMaterial{
-  const color=row?.color??tile?.color??'#c8b89a';
-  const pattern=tile?.pattern??row?.pattern??'solid';
-  const uri=row?.tileImageUri??tile?.imageUri;
+  // Only use the global selectedTile as fallback if this row has an explicit tile assignment
+  const hasTile = row?.tileId || row?.tileImageUri;
+  const effectiveTile = hasTile ? tile : null;
+  const color=row?.color??effectiveTile?.color??'#c8b89a';
+  const pattern=effectiveTile?.pattern??row?.pattern??'solid';
+  const uri=row?.tileImageUri??effectiveTile?.imageUri;
   if(uri)return makeImageMat(uri,repX,repY,color,pattern);
   return makeProceduralMat(color,pattern,repX,repY);
 }
 
 export function resolveRowMatB(row:any,tile:any,repX:number,repY:number):THREE.MeshStandardMaterial{
-  const color=row?.tileBColor??tile?.color??'#c8b89a';
-  const pattern=tile?.pattern??'solid';
-  const uri=row?.tileBImageUri??tile?.imageUri;
+  // Only use the global selectedTile as fallback if this row has an explicit accent tile assignment
+  const hasTileB = row?.tileBId || row?.tileBImageUri;
+  const effectiveTile = hasTileB ? tile : null;
+  const color=row?.tileBColor??effectiveTile?.color??'#c8b89a';
+  const pattern=effectiveTile?.pattern??'solid';
+  const uri=row?.tileBImageUri??effectiveTile?.imageUri;
   if(uri)return makeImageMat(uri,repX,repY,color,pattern);
   return makeProceduralMat(color,pattern,repX,repY);
 }

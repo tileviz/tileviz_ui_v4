@@ -4,6 +4,7 @@
 
 import client from './client';
 import { InventoryItem, ApiResponse } from '../types';
+import { packZoneRows, unpackZoneRows } from './rooms';
 
 export interface CreateInventoryPayload {
   name:                 string;
@@ -44,7 +45,8 @@ export async function getInventory(filters?: {
   const url = query ? `/api/inventory?${query}` : '/api/inventory';
 
   const res = await client.get<ApiResponse<InventoryItem[]>>(url);
-  return res.data.data || [];
+  const items = res.data.data || [];
+  return items.map(item => ({ ...item, zoneRows: unpackZoneRows(item.zoneRows ?? []) }));
 }
 
 // ── Get single inventory item ──
@@ -53,25 +55,30 @@ export async function getInventoryItem(id: string): Promise<InventoryItem> {
   if (!res.data.success || !res.data.data) {
     throw new Error('Inventory item not found');
   }
-  return res.data.data;
+  const item = res.data.data;
+  return { ...item, zoneRows: unpackZoneRows(item.zoneRows ?? []) };
 }
 
 // ── Create inventory item ──
 export async function createInventory(payload: CreateInventoryPayload): Promise<InventoryItem> {
-  const res = await client.post<ApiResponse<InventoryItem>>('/api/inventory', payload);
+  const packed = { ...payload, zoneRows: packZoneRows(payload.zoneRows ?? []) };
+  const res = await client.post<ApiResponse<InventoryItem>>('/api/inventory', packed);
   if (!res.data.success || !res.data.data) {
     throw new Error(res.data.message || 'Failed to create inventory item');
   }
-  return res.data.data;
+  const item = res.data.data;
+  return { ...item, zoneRows: unpackZoneRows(item.zoneRows ?? []) };
 }
 
 // ── Update inventory item ──
 export async function updateInventory(id: string, payload: Partial<CreateInventoryPayload>): Promise<InventoryItem> {
-  const res = await client.put<ApiResponse<InventoryItem>>(`/api/inventory/${id}`, payload);
+  const packed = payload.zoneRows ? { ...payload, zoneRows: packZoneRows(payload.zoneRows) } : payload;
+  const res = await client.put<ApiResponse<InventoryItem>>(`/api/inventory/${id}`, packed);
   if (!res.data.success || !res.data.data) {
     throw new Error(res.data.message || 'Failed to update inventory item');
   }
-  return res.data.data;
+  const item = res.data.data;
+  return { ...item, zoneRows: unpackZoneRows(item.zoneRows ?? []) };
 }
 
 // ── Delete inventory item ──

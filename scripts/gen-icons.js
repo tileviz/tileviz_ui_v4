@@ -87,15 +87,17 @@ function drawGrid(png, cx, cy, gs, gap) {
 }
 
 // ── 1. Main icon (used by iOS + web fallback) ─────────────────
-// Full-bleed dark background + centred tile grid at 64% of canvas.
+// Full-bleed dark background + centred tile grid.
+// iOS clips to a squircle (~10% off each edge), so keep the grid
+// well inside: 52% of canvas gives clean padding on all sides.
 async function genMainIcon() {
   const png = makePNG(SIZE, SIZE);
 
   // Solid dark background (iOS clips to squircle, no need for rounded rect here)
   fillRect(png, 0, 0, SIZE, SIZE, 0, BG[0], BG[1], BG[2]);
 
-  // Grid: 64% of canvas, tiny gap (1.2% of grid)
-  const gs  = Math.round(SIZE * 0.64);
+  // Grid: 52% of canvas, tiny gap (1.2% of grid)
+  const gs  = Math.round(SIZE * 0.52);
   const gap = Math.max(6, Math.round(gs * 0.012));
   drawGrid(png, SIZE / 2, SIZE / 2, gs, gap);
 
@@ -105,11 +107,11 @@ async function genMainIcon() {
 
 // ── 2. Adaptive foreground (transparent bg, grid in safe zone) ─
 // Android safe zone = inner 66% of 1024 = 676px.
-// We use 60% so the grid sits comfortably inside with breathing room.
+// We use 46% so the grid sits comfortably inside with good padding.
 async function genForeground() {
   const png = makePNG(SIZE, SIZE);   // starts transparent
 
-  const gs  = Math.round(SIZE * 0.60);
+  const gs  = Math.round(SIZE * 0.46);
   const gap = Math.max(6, Math.round(gs * 0.012));
   drawGrid(png, SIZE / 2, SIZE / 2, gs, gap);
 
@@ -128,7 +130,7 @@ async function genBackground() {
 // ── 4. Monochrome (for Android themed icons) ──────────────────
 async function genMonochrome() {
   const png = makePNG(SIZE, SIZE);
-  const gs  = Math.round(SIZE * 0.60);
+  const gs  = Math.round(SIZE * 0.46);
   const gap = Math.max(6, Math.round(gs * 0.012));
   const ts  = Math.round((gs - gap * 2) / 3);
   const rad = Math.round(ts * 0.20);

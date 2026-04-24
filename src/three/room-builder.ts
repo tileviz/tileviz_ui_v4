@@ -89,6 +89,8 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
     [{key:'wall_n',pw:W,rotY:0,px:0,pz:-L/2,rh:W/tw},{key:'wall_s',pw:W,rotY:Math.PI,px:0,pz:L/2,rh:W/tw},
      {key:'wall_e',pw:L,rotY:-Math.PI/2,px:W/2,pz:0,rh:L/tw},{key:'wall_w',pw:L,rotY:Math.PI/2,px:-W/2,pz:0,rh:L/tw}
     ].forEach(wd=>{
+      // Balcony: skip the south wall (railing side — open air)
+      if(rt==='balcony'&&wd.key==='wall_s') return;
       if(shouldTileWall(wd.key)){
         // Below counter: plain painted wall (kitchen only)
         if(kitchenCounterY>0){

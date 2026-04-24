@@ -86,6 +86,7 @@ function cloneNativeTexture(src: THREE.Texture, repX: number, repY: number): THR
   t.generateMipmaps = false;
   t.minFilter      = THREE.LinearFilter;
   t.magFilter      = THREE.LinearFilter;
+  t.flipY          = false;          // expo-three textures are already Y-correct
   t.repeat.set(Math.max(0.5, repX), Math.max(0.5, repY));
   t.needsUpdate    = true;
   return t;

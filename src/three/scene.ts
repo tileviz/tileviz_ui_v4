@@ -1,7 +1,7 @@
 // three/scene.ts — Scene, lights, renderer. Dynamic require for expo-three (web safe)
 import * as THREE from 'three';
 import { THREE_FT_SCALE } from '../config';
-import { patchGLForExpoThree } from './materials';
+import { patchGLForExpoThree, initTextureQuality } from './materials';
 
 export interface SceneBundle {
   scene:THREE.Scene; camera:THREE.PerspectiveCamera; renderer:any;
@@ -73,6 +73,8 @@ export function createWebScene(canvas: HTMLCanvasElement, w: number, h: number):
   renderer.setClearColor(0xe8e2d8, 1);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
+  // Enable anisotropic filtering for crisp textures at oblique angles
+  initTextureQuality(renderer);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xe8e2d8);

@@ -86,7 +86,7 @@ function cloneNativeTexture(src: THREE.Texture, repX: number, repY: number): THR
   t.generateMipmaps = false;
   t.minFilter      = THREE.LinearFilter;
   t.magFilter      = THREE.LinearFilter;
-  t.flipY          = false;          // expo-three textures are already Y-correct
+  t.flipY          = true;           // flip Y so image tiles render right-side-up
   t.repeat.set(Math.max(0.5, repX), Math.max(0.5, repY));
   t.needsUpdate    = true;
   return t;
@@ -109,7 +109,7 @@ function loadNativeTexture(uri: string): Promise<THREE.Texture> {
             t.generateMipmaps = false;
             t.minFilter       = THREE.LinearFilter;
             t.magFilter       = THREE.LinearFilter;
-            t.flipY           = false;
+            t.flipY           = true;
             // Force Three.js to skip texStorage2D → use texImage2D instead
             (t as any).isVideoTexture = true;
             (t as any).update = () => {};

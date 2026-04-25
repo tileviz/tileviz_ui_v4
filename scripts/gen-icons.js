@@ -145,12 +145,34 @@ async function genMonochrome() {
   console.log('✓  android-icon-monochrome.png');
 }
 
+// ── 5. Splash icon (all platforms) ────────────────────────────
+// Square 1024×1024, dark background (#140e24), centred logo grid
+// at 30% of canvas. Small enough that `resizeMode: "contain"` keeps
+// the logo compact and perfectly square on any aspect ratio — phone,
+// tablet, foldable.  The surrounding dark fill blends into the
+// splash backgroundColor set in app.json.
+async function genSplash() {
+  const png = makePNG(SIZE, SIZE);
+
+  // Dark background matching app.json splash backgroundColor
+  fillRect(png, 0, 0, SIZE, SIZE, 0, BG[0], BG[1], BG[2]);
+
+  // Grid at 30% — stays small and perfectly proportioned on every screen
+  const gs  = Math.round(SIZE * 0.30);
+  const gap = Math.max(4, Math.round(gs * 0.015));
+  drawGrid(png, SIZE / 2, SIZE / 2, gs, gap);
+
+  await savePNG(png, path.join(ASSETS, 'splash-icon.png'));
+  console.log('✓  splash-icon.png');
+}
+
 (async () => {
   try {
     await genMainIcon();
     await genForeground();
     await genBackground();
     await genMonochrome();
+    await genSplash();
     console.log('\nAll icons generated successfully.');
   } catch (e) { console.error(e); process.exit(1); }
 })();

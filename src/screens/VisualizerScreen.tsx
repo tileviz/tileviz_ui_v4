@@ -186,6 +186,103 @@ function SidebarContent({
   );
 }
 
+// ── Visualizer Stats Bar ──────────────────────────────────────
+// Extracted component for the bottom stats + action buttons.
+// Handles safe-area and bottom-tab overlap on all device types.
+function VisualizerStatsBar({
+  stats,
+  onShare,
+  onSave,
+  saveRef,
+  variant,
+}: {
+  stats: { val: string; lbl: string }[];
+  onShare: () => void;
+  onSave: () => void;
+  saveRef: React.RefObject<any>;
+  variant: 'phone' | 'desktop';
+}) {
+  if (variant === 'phone') {
+    return (
+      <View style={vsb.barPhone}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+          {stats.map((stat, i) => (
+            <React.Fragment key={i}>
+              <View style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#E0E3F5' }}>{stat.val}</Text>
+                <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.lbl}</Text>
+              </View>
+              {i < stats.length - 1 && <View style={{ width: 1, height: 24, backgroundColor: 'rgba(124,111,247,0.2)' }} />}
+            </React.Fragment>
+          ))}
+        </View>
+        <TouchableOpacity onPress={onShare} style={vsb.fab} activeOpacity={0.8}>
+          <Text style={{ fontSize: 16 }}>📤</Text>
+        </TouchableOpacity>
+        <TouchableOpacity ref={saveRef} onPress={onSave} style={vsb.fab} activeOpacity={0.8}>
+          <Text style={{ fontSize: 16 }}>💾</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Desktop / tablet
+  return (
+    <View style={vsb.bar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 16, gap: 12 }}>
+        {stats.map((stat, i) => (
+          <React.Fragment key={i}>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 17, fontWeight: '600', color: '#E0E3F5' }}>{stat.val}</Text>
+              <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 0.6 }}>{stat.lbl}</Text>
+            </View>
+            {i < stats.length - 1 && <View style={{ width: 1, height: 32, backgroundColor: 'rgba(124,111,247,0.2)' }} />}
+          </React.Fragment>
+        ))}
+        <View style={{ flexDirection: 'row', gap: 8, marginLeft: 8 }}>
+          <Button label="📤 Share" onPress={onShare} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
+          <View ref={saveRef} collapsable={false}>
+            <Button
+              label="💾 Save"
+              onPress={onSave}
+              variant="outline"
+              size="sm"
+              style={{ borderColor: 'rgba(255,255,255,0.3)' }}
+              textStyle={{ color: '#E0E3F5' }}
+            />
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const vsb = StyleSheet.create({
+  bar: {
+    backgroundColor: Colors.primary,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(124,111,247,0.15)',
+    height: 58,
+  },
+  barPhone: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  fab: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    ...Shadows.card,
+  },
+});
+
 export function VisualizerScreen() {
   const { roomType, setRoomType, dimensions, setDimensions, selectedTileSize, setTileSize, zoneRows, wallColor, setWallColor, setActivePage, clearDesign, loadedSnapshot, hasDesignChanged } = useAppStore();
   const { selectedTile, setSelectedTile } = useCatalogStore();
@@ -378,44 +475,19 @@ export function VisualizerScreen() {
           </View>
         </View>
 
-        {/* Bottom stats bar + settings button */}
+        {/* Bottom stats bar + action buttons */}
         <View style={s.mobileBottomBar}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-            {[
+          <VisualizerStatsBar
+            stats={[
               { val: tilesNeeded.toLocaleString(), lbl: 'TILES' },
               { val: String(totalSqFt), lbl: 'SQ FT' },
               { val: isCustom ? `${tw}x${th}` : selectedTileSize, lbl: 'SIZE' },
-            ].map((stat, i) => (
-              <React.Fragment key={i}>
-                <View style={{ alignItems: 'center' }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#E0E3F5' }}>{stat.val}</Text>
-                  <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.lbl}</Text>
-                </View>
-                {i < 2 && <View style={{ width: 1, height: 24, backgroundColor: 'rgba(124,111,247,0.2)' }} />}
-              </React.Fragment>
-            ))}
-          </View>
-
-          {/* Share FAB */}
-          <TouchableOpacity
-            onPress={handleShare}
-            style={s.settingsFab}
-            activeOpacity={0.8}
-          >
-            <Text style={{ fontSize: 16 }}>📤</Text>
-          </TouchableOpacity>
-
-          {/* Save FAB */}
-          <TouchableOpacity
-            ref={saveDesignRef}
-            collapsable={false}
-            onPress={handleSave}
-            style={s.settingsFab}
-            activeOpacity={0.8}
-          >
-            <Text style={{ fontSize: 16 }}>💾</Text>
-          </TouchableOpacity>
-
+            ]}
+            onShare={handleShare}
+            onSave={handleSave}
+            saveRef={saveDesignRef}
+            variant="phone"
+          />
           {/* Settings FAB */}
           <TouchableOpacity
             onPress={() => setShowSettings(true)}
@@ -504,37 +576,18 @@ export function VisualizerScreen() {
           <ThreeCanvas config={liveConfig} onResetDesign={handleResetDesign} onCaptureReady={handleCaptureReady} />
         </View>
 
-        <View style={s.bottomBar}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 16, gap: 12 }}>
-            {[
-              { val: tilesNeeded.toLocaleString(), lbl: 'TOTAL TILES' },
-              { val: String(totalSqFt), lbl: 'SQ FT' },
-              { val: isCustom ? `${tw}x${th}` : selectedTileSize, lbl: 'TILE SIZE' },
-              { val: roomLabel, lbl: 'ROOM' },
-            ].map((stat, i) => (
-              <React.Fragment key={i}>
-                <View style={{ alignItems: 'center' }}>
-                  <Text style={{ fontSize: 17, fontWeight: '600', color: '#E0E3F5' }}>{stat.val}</Text>
-                  <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 0.6 }}>{stat.lbl}</Text>
-                </View>
-                {i < 3 && <View style={{ width: 1, height: 32, backgroundColor: 'rgba(124,111,247,0.2)' }} />}
-              </React.Fragment>
-            ))}
-            <View style={{ flexDirection: 'row', gap: 8, marginLeft: 8 }}>
-              <Button label="📤 Share" onPress={handleShare} variant="outline" size="sm" style={{ borderColor: 'rgba(255,255,255,0.3)' }} textStyle={{ color: '#E0E3F5' }} />
-              <View ref={saveDesignRef} collapsable={false}>
-                <Button
-                  label="💾 Save"
-                  onPress={handleSave}
-                  variant="outline"
-                  size="sm"
-                  style={{ borderColor: 'rgba(255,255,255,0.3)' }}
-                  textStyle={{ color: '#E0E3F5' }}
-                />
-              </View>
-            </View>
-          </ScrollView>
-        </View>
+        <VisualizerStatsBar
+          stats={[
+            { val: tilesNeeded.toLocaleString(), lbl: 'TOTAL TILES' },
+            { val: String(totalSqFt), lbl: 'SQ FT' },
+            { val: isCustom ? `${tw}x${th}` : selectedTileSize, lbl: 'TILE SIZE' },
+            { val: roomLabel, lbl: 'ROOM' },
+          ]}
+          onShare={handleShare}
+          onSave={handleSave}
+          saveRef={saveDesignRef}
+          variant="desktop"
+        />
       </View>
 
       {/* Save Design Modal */}
@@ -779,10 +832,9 @@ const s = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderTopWidth: 1,
     borderTopColor: 'rgba(124,111,247,0.15)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingRight: 10,
   },
   settingsFab: {
     width: 44,
@@ -791,7 +843,7 @@ const s = StyleSheet.create({
     backgroundColor: Colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
+    marginLeft: 4,
     ...Shadows.card,
   },
   settingsBackdrop: {

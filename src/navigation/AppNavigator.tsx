@@ -24,13 +24,14 @@ import { DashboardScreen }    from '../screens/DashboardScreen';
 import { AdminScreen }        from '../screens/AdminScreen';
 import { InventoryScreen }    from '../screens/InventoryScreen';
 import { AppHeader }          from '../components/AppHeader';
-import { BottomTabBar }       from '../components/BottomTabBar';
+import { BottomTabBar, useTabBarHeight } from '../components/BottomTabBar';
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
   const { user, setUser, isReady, setReady } = useAuthStore();
   const { activePage, setActivePage } = useAppStore();
   const { isPhone, showBottomTabs } = useLayout();
+  const tabBarHeight = useTabBarHeight();
   const bootDone = useRef(false);
 
   // Lazy persistent mounting: mount each screen once on first visit, then keep alive.
@@ -201,7 +202,7 @@ export function AppNavigator() {
   return (
     <View style={{ flex: 1, backgroundColor: Colors.surface }}>
       <AppHeader onLogout={handleLogout} />
-      <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? 68 : 0 }}>
+      <View style={{ flex: 1, paddingTop: insets.top + headerHeight, paddingBottom: showBottomTabs ? tabBarHeight : 0 }}>
         {/* Visualizer: mount only when active so WebGL context is always fresh */}
         {activePage === 'visualizer' && (
           <View key={`visualizer-${vizMountKey}`} style={{ flex: 1 }}>

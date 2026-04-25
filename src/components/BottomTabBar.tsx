@@ -4,12 +4,17 @@
 // ============================================================
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../config/theme';
 import { useAppStore } from '../store/app.store';
 import { useAuthStore } from '../store/auth.store';
 import { NavPage, UserRole } from '../types';
+
+// Fixed content area height (icons + labels). Safe area is added below.
+export const TAB_BAR_CONTENT_H = 56;
+// Minimum bottom padding for devices without safe area (3-button nav)
+const MIN_BOTTOM_PAD = 6;
 
 interface TabItem {
   key: NavPage;
@@ -30,10 +35,18 @@ const MORE_TABS: TabItem[] = [
   { key: 'admin',     icon: '◉',  label: 'Admin',     roles: ['admin'] },
 ];
 
+/** Returns the total tab bar height (content + safe area) for layout calculations. */
+export function useTabBarHeight(): number {
+  const insets = useSafeAreaInsets();
+  return TAB_BAR_CONTENT_H + Math.max(insets.bottom, MIN_BOTTOM_PAD);
+}
+
 export function BottomTabBar() {
   const insets = useSafeAreaInsets();
   const { activePage, setActivePage } = useAppStore();
   const { user } = useAuthStore();
+
+  const bottomPad = Math.max(insets.bottom, MIN_BOTTOM_PAD);
 
   // Filter tabs by user role
   const visibleTabs = PRIMARY_TABS.filter(
@@ -43,15 +56,11 @@ export function BottomTabBar() {
     tab => !tab.roles || (user && tab.roles.includes(user.role))
   );
 
-  // If there are "more" tabs, we show them inline if ≤2, otherwise we'd need a "More" tab
-  // For simplicity, merge all visible tabs
-  const allTabs = [...visibleTabs, ...visibleMore];
-
-  // Limit to 5 tabs max in bottom bar
-  const tabs = allTabs.slice(0, 5);
+  // Merge all visible tabs — limit to 5 max in bottom bar
+  const tabs = [...visibleTabs, ...visibleMore].slice(0, 5);
 
   return (
-    <View style={[s.container, { paddingBottom: Math.max(insets.bottom, 6) }]}>
+    <View style={[s.container, { height: TAB_BAR_CONTENT_H + bottomPad, paddingBottom: bottomPad }]}>
       {tabs.map(tab => {
         const isActive = activePage === tab.key;
         return (
@@ -81,22 +90,26 @@ const s = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 68,
     flexDirection: 'row',
     backgroundColor: Colors.primary,
     borderTopWidth: 1,
     borderTopColor: 'rgba(124,111,247,0.15)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 12,
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 -2px 8px rgba(0,0,0,0.15)' } as any
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 12,
+        }),
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 6,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   iconWrap: {
     width: 36,

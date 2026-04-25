@@ -1,6 +1,5 @@
 // three/room-builder.ts — builds room + fixtures. Center FIX: g.position.y = -H/2
 import * as THREE from 'three';
-import { Platform } from 'react-native';
 import { THREE_FT_SCALE, KITCHEN_COUNTER_FT } from '../config';
 import { resolveRowMat, resolveRowMatB } from './materials';
 import { RoomType, ZoneRow, Tile } from '../types';
@@ -50,12 +49,6 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
     const cellW=W/numX, cellL=L/numZ;
     // Create only 2 shared materials + 1 shared geometry — avoids 300+ draw calls on mobile
     const geo=new THREE.PlaneGeometry(cellW,cellL);
-    // Flip V on native so tiles aren't upside-down
-    if(Platform.OS!=='web'){
-      const uv=geo.attributes.uv;
-      for(let i=0;i<uv.count;i++) uv.setY(i,1-uv.getY(i));
-      uv.needsUpdate=true;
-    }
     const matBase=resolveRowMat(fr,cfg.selectedTile,1,1);
     const matAccent=resolveRowMatB(fr,cfg.selectedTile,1,1);
     for(let xi=0;xi<numX;xi++){
@@ -119,13 +112,6 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
             const accentEvery=pt==='pattern1'?3:2;
             // 2 shared materials + 1 shared geometry per row — avoids N new materials on mobile
             const colGeo=new THREE.PlaneGeometry(colW,rowH);
-            // On native (expo-gl), textures loaded via expo-three have inverted Y.
-            // Flip the V coordinates so tiles render right-side-up on mobile.
-            if(Platform.OS!=='web'){
-              const uv=colGeo.attributes.uv;
-              for(let i=0;i<uv.count;i++) uv.setY(i,1-uv.getY(i));
-              uv.needsUpdate=true;
-            }
             const repY=Math.max(0.5,rowH/th);
             const matBase=resolveRowMat(zr,cfg.selectedTile,1,repY);
             const matAccent=resolveRowMatB(zr,cfg.selectedTile,1,repY);

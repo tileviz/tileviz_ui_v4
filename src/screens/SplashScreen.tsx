@@ -23,14 +23,19 @@ const TILE_COLORS = [
 ];
 
 // ── Direction each tile flies in FROM (dx, dy in px) ──────────
+// Scale flight distance relative to the shorter screen edge
+const SHORT = Math.min(SW, SH);
+const FLIGHT = SHORT * 0.22;
 const TILE_ORIGINS: [number, number][] = [
-  [-180, -180], [   0, -220], [ 180, -180],   // row 0: corners → top, top-right
-  [-220,    0], [   0,    0], [ 220,    0],   // row 1: sides (centre scales)
-  [-180,  180], [   0,  220], [ 180,  180],   // row 2: bottom
+  [-FLIGHT, -FLIGHT], [      0, -FLIGHT * 1.2], [ FLIGHT, -FLIGHT],
+  [-FLIGHT * 1.2, 0], [      0,             0], [ FLIGHT * 1.2, 0],
+  [-FLIGHT,  FLIGHT], [      0,  FLIGHT * 1.2], [ FLIGHT,  FLIGHT],
 ];
 
-const TILE_SIZE  = Math.min(SW * 0.185, 82);
-const GAP        = Math.max(4, TILE_SIZE * 0.045);
+// Use the shorter screen dimension so the grid is always square
+// and proportionally sized — no hard pixel cap.
+const TILE_SIZE  = SHORT * 0.135;
+const GAP        = Math.max(3, TILE_SIZE * 0.05);
 const GRID_SIZE  = TILE_SIZE * 3 + GAP * 2;
 const TILE_RAD   = TILE_SIZE * 0.22;
 
@@ -216,19 +221,19 @@ const st = StyleSheet.create({
     alignItems: 'baseline',
   },
   titleTile: {
-    fontSize: 32,
+    fontSize: Math.max(24, TILE_SIZE * 0.52),
     fontWeight: '300',
     color: '#e8eaf4',
     letterSpacing: 1,
   },
   titleViz: {
-    fontSize: 32,
+    fontSize: Math.max(24, TILE_SIZE * 0.52),
     fontWeight: '800',
     color: '#7C6FF7',
     letterSpacing: 3,
   },
   tagline: {
-    fontSize: 11,
+    fontSize: Math.max(9, TILE_SIZE * 0.16),
     fontWeight: '400',
     color: 'rgba(200,169,110,0.8)',
     letterSpacing: 3.5,

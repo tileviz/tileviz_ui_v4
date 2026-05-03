@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as THREE from 'three';
 import { Colors, Radii } from '../config/theme';
 import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScene, setupInteriorCamera, setInteriorLighting, setExteriorLighting } from './scene';
-import { buildRoom } from './room-builder';
+import { buildRoom, toggleWindows } from './room-builder';
 import { clearTextureCache } from './materials';
 import { RoomType, Tile, ZoneRow } from '../types';
 
@@ -177,6 +177,7 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
   const [lightOn,    setLightOnUI]  = useState(true);
   const [objectsOn,  setObjectsOn]  = useState(true);
   const [interiorMode, setInteriorMode] = useState(false);
+  const [windowsOpen, setWindowsOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
 
   // Keep config ref current
@@ -528,6 +529,7 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
     { icon: autoRotate?'⏸':'▶', label: interiorMode?(autoRotate?'Freeze View':'Unfreeze View'):autoRotate?'Pause Rotation':'Resume Rotation', fn: () => { const s=stateRef.current; if(s){s.autoRotate=!s.autoRotate;setAutoRotate(s.autoRotate);} } },
     { icon: lightOn?'☀':'☽', label: lightOn?'Lights Off':'Lights On', fn: () => { const s=stateRef.current; if(s){s.lightOn=!s.lightOn;if(s.interiorMode){s.bundle.hemi.intensity=s.lightOn?1.2:0.55;s.bundle.sun.intensity=s.lightOn?0.6:0;s.bundle.pointLight.intensity=s.lightOn?1.5:0.1;}else{setLighting(s.bundle,s.lightOn);}setLightOnUI(s.lightOn);} } },
     { icon: objectsOn?'🚫':'🪑', label: objectsOn?'Remove Objects':'Add Objects', active: !objectsOn, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){s.objectsOn=!s.objectsOn;s.fixturesGroup.visible=s.objectsOn;setObjectsOn(s.objectsOn);} } },
+    ...(interiorMode ? [{ icon: windowsOpen?'🪟':'🏠', label: windowsOpen?'Close Windows':'Open Windows', active: windowsOpen, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){const newState=!windowsOpen;toggleWindows(s.fixturesGroup,newState);setWindowsOpen(newState);} } }] : []),
     ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 
@@ -602,6 +604,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
   const [lightOn,      setLightOnUI]    = useState(true);
   const [objectsOn,    setObjectsOn]    = useState(true);
   const [interiorMode, setInteriorMode] = useState(false);
+  const [windowsOpen,  setWindowsOpen]  = useState(false);
   const [showHint,     setShowHint]     = useState(false);
 
   // Keep config ref current
@@ -897,6 +900,7 @@ function NativeCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset
       const s = stateRef.current;
       if (s?.fixturesGroup) { s.objectsOn = !s.objectsOn; s.fixturesGroup.visible = s.objectsOn; setObjectsOn(s.objectsOn); }
     }},
+    ...(interiorMode ? [{ icon: windowsOpen?'🪟':'🏠', label: windowsOpen?'Close Windows':'Open Windows', active: windowsOpen, fn: () => { const s=stateRef.current; if(s?.fixturesGroup){const newState=!windowsOpen;toggleWindows(s.fixturesGroup,newState);setWindowsOpen(newState);} } }] : []),
     ...(onResetDesign ? [{ icon: '↺', label: 'Reset Design', fn: onResetDesign }] : []),
   ];
 

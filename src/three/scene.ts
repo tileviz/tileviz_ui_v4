@@ -132,7 +132,7 @@ export function frameCameraToRoom(cam:THREE.PerspectiveCamera, wFt:number, lFt:n
 }
 
 export function setLighting(b:SceneBundle, on:boolean) {
-  b.hemi.intensity=on?0.6:0.15;  // Very dim when off — no white wash on floor
+  b.hemi.intensity=on?0.5:0.25;  // Dim but still visible when off
   b.sun.intensity=on?1.8:0;
   b.pointLight.intensity=on?1.2:0;
   // Also toggle any other lights in the scene (fill, rim)
@@ -171,7 +171,7 @@ export function setInteriorLighting(b: SceneBundle) {
 
 // ── Restore Exterior Lighting ──
 export function setExteriorLighting(b: SceneBundle, lightOn: boolean) {
-  b.hemi.intensity = lightOn ? 0.6 : 0.15;
+  b.hemi.intensity = lightOn ? 0.5 : 0.25;
   b.sun.intensity = lightOn ? 1.8 : 0;
   b.pointLight.intensity = lightOn ? 1.2 : 0;
   // Toggle fill/rim lights

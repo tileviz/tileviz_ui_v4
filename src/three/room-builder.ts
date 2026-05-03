@@ -205,7 +205,42 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
   g.position.set(0,-H/2,0);
   pl.position.set(0,H*0.4,0);
   scene.add(g);
+  console.log('[TileViz:RoomBuilder] buildRoom DONE — roomGroup children:', g.children.length, 'fixturesGroup children:', fg.children.length);
   return { roomGroup: g, fixturesGroup: fg };
+}
+
+// ── Toggle windows open/close ────────────────────────────────
+// Traverses the fixtures group and:
+// - Opens shutters (rotates them outward)
+// - Makes glass more transparent
+// - Shows sky panel behind window
+export function toggleWindows(fixturesGroup: THREE.Group, open: boolean): void {
+  fixturesGroup.traverse((child: any) => {
+    if (child.name === 'window_shutter') {
+      const side = child.userData.shutterSide; // -1 or 1
+      if (open) {
+        // Rotate shutters open (swing outward by ~70 degrees)
+        if (child.userData.axis === 'z') {
+          // Shutter on X-facing wall → rotate around Y axis
+          child.rotation.y = side * 1.2; // ~70 degrees open
+        } else {
+          // Shutter on Z-facing wall → rotate around Y axis
+          child.rotation.y = side * 1.2;
+        }
+      } else {
+        // Close shutters (flat)
+        child.rotation.y = 0;
+      }
+    }
+    if (child.name === 'window_glass' && child.material) {
+      child.material.opacity = open ? 0.15 : 0.45; // more transparent when open
+      child.material.needsUpdate = true;
+    }
+    if (child.name === 'window_sky' && child.material) {
+      child.material.opacity = open ? 0.85 : 0; // show sky when open, hidden when closed
+      child.material.needsUpdate = true;
+    }
+  });
 }
 
 // ── Shared: Indian-style door ─────────────────────────────────
@@ -231,34 +266,65 @@ function addWindow(cx:number,cy:number,wallPos:number,ww:number,wh:number,g:THRE
   const grilleMat=std(0x3a3a3a,0.4,0.6);
   const shutterMat=std(0x4a7a5a,0.7); // green shutters — common in India
 
+  // Sky panel behind window — visible when window is "open"
+  const skyMat=new THREE.MeshStandardMaterial({color:0x87ceeb,emissive:0x4a90d9,emissiveIntensity:0.6,roughness:1,transparent:true,opacity:0});
+
   if(axis==='z'){
     // Window on X-facing wall (east/west)
     // Outer frame
     mesh(new THREE.BoxGeometry(0.06,wh+0.08,ww+0.08),frameMat,wallPos,cy,cx,g);
     // Glass pane
-    mesh(new THREE.BoxGeometry(0.02,wh,ww),glassMat,wallPos+(wallPos>0?-0.01:0.01),cy,cx,g);
+    const glass=new THREE.Mesh(new THREE.BoxGeometry(0.02,wh,ww),glassMat);
+    glass.position.set(wallPos+(wallPos>0?-0.01:0.01),cy,cx);
+    glass.name='window_glass';
+    g.add(glass);
+    // Sky panel (behind the window)
+    const sky=new THREE.Mesh(new THREE.PlaneGeometry(ww-0.04,wh-0.04),skyMat);
+    sky.position.set(wallPos+(wallPos>0?-0.04:0.04),cy,cx);
+    sky.rotation.y=wallPos>0?Math.PI:0;
+    sky.name='window_sky';
+    g.add(sky);
     // Window sill
     mesh(new THREE.BoxGeometry(0.08,0.03,ww+0.1),std(0xd8d0c4,0.8),wallPos,cy-wh/2-0.015,cx,g);
     // Horizontal grille bars
     for(let b=1;b<4;b++) mesh(new THREE.BoxGeometry(0.025,0.012,ww-0.02),grilleMat,wallPos,cy-wh/2+b*wh/4,cx,g);
     // Vertical grille bars
     for(let b=1;b<3;b++) mesh(new THREE.BoxGeometry(0.025,wh-0.02,0.012),grilleMat,wallPos,cy,cx-ww/2+b*ww/3,g);
-    // Shutters (one on each side, slightly angled)
+    // Shutters (one on each side)
     [-1,1].forEach(s=>{
       const shutter=new THREE.Mesh(new THREE.BoxGeometry(0.02,wh-0.04,ww/2-0.06),shutterMat);
       shutter.position.set(wallPos+(wallPos>0?-0.03:0.03),cy,cx+s*(ww/4));
+      shutter.name='window_shutter';
+      shutter.userData.shutterSide=s;
+      shutter.userData.axis='z';
+      shutter.userData.baseZ=cx+s*(ww/4);
+      shutter.userData.wallPos=wallPos;
       g.add(shutter);
     });
   } else {
     // Window on Z-facing wall (north/south)
     mesh(new THREE.BoxGeometry(ww+0.08,wh+0.08,0.06),frameMat,cx,cy,wallPos,g);
-    mesh(new THREE.BoxGeometry(ww,wh,0.02),glassMat,cx,cy,wallPos+(wallPos>0?-0.01:0.01),g);
+    const glass=new THREE.Mesh(new THREE.BoxGeometry(ww,wh,0.02),glassMat);
+    glass.position.set(cx,cy,wallPos+(wallPos>0?-0.01:0.01));
+    glass.name='window_glass';
+    g.add(glass);
+    // Sky panel (behind the window)
+    const sky=new THREE.Mesh(new THREE.PlaneGeometry(ww-0.04,wh-0.04),skyMat);
+    sky.position.set(cx,cy,wallPos+(wallPos>0?-0.04:0.04));
+    sky.rotation.y=wallPos>0?0:Math.PI;
+    sky.name='window_sky';
+    g.add(sky);
     mesh(new THREE.BoxGeometry(ww+0.1,0.03,0.08),std(0xd8d0c4,0.8),cx,cy-wh/2-0.015,wallPos,g);
     for(let b=1;b<4;b++) mesh(new THREE.BoxGeometry(ww-0.02,0.012,0.025),grilleMat,cx,cy-wh/2+b*wh/4,wallPos,g);
     for(let b=1;b<3;b++) mesh(new THREE.BoxGeometry(0.012,wh-0.02,0.025),grilleMat,cx-ww/2+b*ww/3,cy,wallPos,g);
     [-1,1].forEach(s=>{
       const shutter=new THREE.Mesh(new THREE.BoxGeometry(ww/2-0.06,wh-0.04,0.02),shutterMat);
       shutter.position.set(cx+s*(ww/4),cy,wallPos+(wallPos>0?-0.03:0.03));
+      shutter.name='window_shutter';
+      shutter.userData.shutterSide=s;
+      shutter.userData.axis='x';
+      shutter.userData.baseX=cx+s*(ww/4);
+      shutter.userData.wallPos=wallPos;
       g.add(shutter);
     });
   }

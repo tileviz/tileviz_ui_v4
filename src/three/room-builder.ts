@@ -1,7 +1,7 @@
 // three/room-builder.ts — builds room + fixtures. Center FIX: g.position.y = -H/2
 import * as THREE from 'three';
 import { THREE_FT_SCALE, KITCHEN_COUNTER_FT } from '../config';
-import { resolveRowMat, resolveRowMatB } from './materials';
+import { resolveRowMat, resolveRowMatB, resolveRowMatC, resolveRowMatD } from './materials';
 import { RoomType, ZoneRow, Tile } from '../types';
 
 export interface RoomBuildConfig {
@@ -41,7 +41,7 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
   const numRows = Math.max(1, Math.round(tilingFt/(cfg.tileHeightIn/12)));
   const rowH = tileableH/numRows;
 
-  // ── Floor — tiled from catalog (checker pattern for parking) ──
+  // ── Floor — tiled from catalog (checker/circle pattern for parking) ──
   const fr=cfg.zoneRows.find(r=>r.wallKey==='floor');
   if(fr?.patternType==='checker'){
     const numX=Math.max(1,Math.round(W/tw));
@@ -58,6 +58,59 @@ export function buildRoom(scene:THREE.Scene,cfg:RoomBuildConfig,pl:THREE.PointLi
         tile.position.set(-W/2+xi*cellW+cellW/2,0,-L/2+zi*cellL+cellL/2);
         tile.receiveShadow=true;
         g.add(tile);
+      }
+    }
+  }else if(fr?.patternType==='circle'){
+    // ── Circle pattern: 4 quarter-circle tiles in a 2x2 repeating unit ──
+    // Layout per 2x2 block:
+    //   Q1 (A=top-left)  | Q2 (B=top-right)
+    //   Q3 (C=bot-left)  | Q4 (D=bot-right)
+    // This 2x2 unit repeats across the entire floor.
+    const unitSize = tw * 2; // each unit is 2 tiles wide
+    const numUnitsX = Math.max(1, Math.round(W / unitSize));
+    const numUnitsZ = Math.max(1, Math.round(L / unitSize));
+    const cellW = W / (numUnitsX * 2);
+    const cellL = L / (numUnitsZ * 2);
+    const geo = new THREE.PlaneGeometry(cellW, cellL);
+    // 4 materials for the 4 quadrant tiles
+    const matQ1 = resolveRowMat(fr, cfg.selectedTile, 1, 1);   // A — top-left
+    const matQ2 = resolveRowMatB(fr, cfg.selectedTile, 1, 1);  // B — top-right
+    const matQ3 = resolveRowMatC(fr, cfg.selectedTile, 1, 1);  // C — bottom-left
+    const matQ4 = resolveRowMatD(fr, cfg.selectedTile, 1, 1);  // D — bottom-right
+
+    for (let ux = 0; ux < numUnitsX; ux++) {
+      for (let uz = 0; uz < numUnitsZ; uz++) {
+        // Origin of this 2x2 unit
+        const baseX = -W / 2 + ux * cellW * 2;
+        const baseZ = -L / 2 + uz * cellL * 2;
+
+        // Q1 — top-left (row 0, col 0 within unit)
+        const t1 = new THREE.Mesh(geo, matQ1);
+        t1.rotation.x = -Math.PI / 2;
+        t1.position.set(baseX + cellW * 0.5, 0, baseZ + cellL * 0.5);
+        t1.receiveShadow = true;
+        g.add(t1);
+
+        // Q2 — top-right (row 0, col 1 within unit)
+        const t2 = new THREE.Mesh(geo, matQ2);
+        t2.rotation.x = -Math.PI / 2;
+        t2.position.set(baseX + cellW * 1.5, 0, baseZ + cellL * 0.5);
+        t2.receiveShadow = true;
+        g.add(t2);
+
+        // Q3 — bottom-left (row 1, col 0 within unit)
+        const t3 = new THREE.Mesh(geo, matQ3);
+        t3.rotation.x = -Math.PI / 2;
+        t3.position.set(baseX + cellW * 0.5, 0, baseZ + cellL * 1.5);
+        t3.receiveShadow = true;
+        g.add(t3);
+
+        // Q4 — bottom-right (row 1, col 1 within unit)
+        const t4 = new THREE.Mesh(geo, matQ4);
+        t4.rotation.x = -Math.PI / 2;
+        t4.position.set(baseX + cellW * 1.5, 0, baseZ + cellL * 1.5);
+        t4.receiveShadow = true;
+        g.add(t4);
       }
     }
   }else{

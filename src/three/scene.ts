@@ -72,23 +72,25 @@ export function createWebScene(canvas: HTMLCanvasElement, w: number, h: number):
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor(0xe8e2d8, 1);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.2; // slightly brighter for vibrant tiles
   // Enable anisotropic filtering for crisp textures at oblique angles
   initTextureQuality(renderer);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xe8e2d8);
-  scene.fog = new THREE.FogExp2(0xe8e2d8, 0.005);
+  scene.fog = new THREE.FogExp2(0xe8e2d8, 0.003); // lighter fog — less washed out
 
   const camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 120);
   camera.position.set(6, 5, 8);
   camera.lookAt(0, 0, 0);
 
-  const hemi = new THREE.HemisphereLight(0xfff5e4, 0x8a7a6a, 0.9);
+  // Reduced hemisphere — prevents flat/washed out look
+  const hemi = new THREE.HemisphereLight(0xfff8f0, 0x7a6a5a, 0.6);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xfff5e6, 1.4);
-  sun.position.set(8, 14, 8);
+  // Main sun — warm, from upper-front angle for strong specular on wall tiles
+  const sun = new THREE.DirectionalLight(0xfff5e6, 1.8);
+  sun.position.set(6, 12, 10);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
   sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 70;
@@ -97,13 +99,22 @@ export function createWebScene(canvas: HTMLCanvasElement, w: number, h: number):
   sun.shadow.bias = -0.0003;
   scene.add(sun);
 
-  const pointLight = new THREE.PointLight(0xfff8e0, 1.0, 35);
+  // Overhead point light — simulates room ceiling light, adds specular spots
+  const pointLight = new THREE.PointLight(0xfff8e0, 1.2, 35);
   pointLight.position.set(0, 5, 0);
   scene.add(pointLight);
 
-  const fill = new THREE.DirectionalLight(0xe8f4ff, 0.4);
-  fill.position.set(5, 3, 8);
+  // Cool fill from the side — adds depth and dimension
+  const fill = new THREE.DirectionalLight(0xe0f0ff, 0.5);
+  fill.position.set(-5, 4, 6);
+  fill.userData.origIntensity = 0.5;
   scene.add(fill);
+
+  // Back rim light — subtle edge highlights making tiles more 3D
+  const rim = new THREE.DirectionalLight(0xfff0e0, 0.3);
+  rim.position.set(-4, 8, -6);
+  rim.userData.origIntensity = 0.3;
+  scene.add(rim);
 
   return { scene, camera, renderer, sun, pointLight, hemi };
 }
@@ -121,8 +132,16 @@ export function frameCameraToRoom(cam:THREE.PerspectiveCamera, wFt:number, lFt:n
 }
 
 export function setLighting(b:SceneBundle, on:boolean) {
-  b.hemi.intensity=on?0.9:0.65;
-  b.sun.intensity=on?1.4:0; b.pointLight.intensity=on?1.0:0;
+  b.hemi.intensity=on?0.6:0.15;  // Very dim when off — no white wash on floor
+  b.sun.intensity=on?1.8:0;
+  b.pointLight.intensity=on?1.2:0;
+  // Also toggle any other lights in the scene (fill, rim)
+  b.scene.traverse((child: any) => {
+    if (child.isDirectionalLight && child !== b.sun) {
+      child.intensity = on ? child.userData.origIntensity ?? child.intensity : 0;
+      if (on && !child.userData.origIntensity) child.userData.origIntensity = child.intensity;
+    }
+  });
 }
 
 // ── Interior Camera Setup (360° Panorama) ──
@@ -152,8 +171,14 @@ export function setInteriorLighting(b: SceneBundle) {
 
 // ── Restore Exterior Lighting ──
 export function setExteriorLighting(b: SceneBundle, lightOn: boolean) {
-  // Restore original exterior lighting
-  b.hemi.intensity = 0.9;
-  b.sun.intensity = lightOn ? 1.4 : 0;
-  b.pointLight.intensity = lightOn ? 1.0 : 0;
+  b.hemi.intensity = lightOn ? 0.6 : 0.15;
+  b.sun.intensity = lightOn ? 1.8 : 0;
+  b.pointLight.intensity = lightOn ? 1.2 : 0;
+  // Toggle fill/rim lights
+  b.scene.traverse((child: any) => {
+    if (child.isDirectionalLight && child !== b.sun) {
+      child.intensity = lightOn ? child.userData.origIntensity ?? child.intensity : 0;
+      if (lightOn && !child.userData.origIntensity) child.userData.origIntensity = child.intensity;
+    }
+  });
 }

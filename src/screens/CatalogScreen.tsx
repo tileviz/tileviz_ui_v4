@@ -76,7 +76,7 @@ export function CatalogScreen() {
       const parts = assigningKey.split(':');
       const wallKey = parts[0];
       const rowIndex = parseInt(parts[1]);
-      const slot = parts[2]; // 'accent' | undefined
+      const slot = parts[2]; // 'accent' | 'tileC' | 'tileD' | undefined
       const rowLabel = wallKey === 'floor' ? 'Floor Tile' : `Row ${rowIndex + 1}`;
 
       if (slot === 'accent') {
@@ -94,6 +94,36 @@ export function CatalogScreen() {
             : [...zoneRows, updated]
         );
         showAlert('✅ Accent Assigned', `"${tile.name}" → ${rowLabel} accent`);
+      } else if (slot === 'tileC') {
+        // Assign Q3 (C) tile — circle pattern bottom-left
+        const existing = zoneRows.find(r => r.wallKey === wallKey && r.rowIndex === rowIndex);
+        const updated = {
+          rowIndex, wallKey,
+          ...(existing ?? {}),
+          tileCId: tile.id, tileCName: tile.name,
+          tileCColor: tile.color, tileCImageUri: tile.imageUri,
+        };
+        setZoneRows(
+          zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
+            ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? updated : r)
+            : [...zoneRows, updated]
+        );
+        showAlert('✅ Q3 Assigned', `"${tile.name}" → ${rowLabel} Q3 (Bottom-Left)`);
+      } else if (slot === 'tileD') {
+        // Assign Q4 (D) tile — circle pattern bottom-right
+        const existing = zoneRows.find(r => r.wallKey === wallKey && r.rowIndex === rowIndex);
+        const updated = {
+          rowIndex, wallKey,
+          ...(existing ?? {}),
+          tileDId: tile.id, tileDName: tile.name,
+          tileDColor: tile.color, tileDImageUri: tile.imageUri,
+        };
+        setZoneRows(
+          zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
+            ? zoneRows.map(r => r.wallKey === wallKey && r.rowIndex === rowIndex ? updated : r)
+            : [...zoneRows, updated]
+        );
+        showAlert('✅ Q4 Assigned', `"${tile.name}" → ${rowLabel} Q4 (Bottom-Right)`);
       } else {
         // Assign base tile — preserve accent fields if they exist
         const existing = zoneRows.find(r => r.wallKey === wallKey && r.rowIndex === rowIndex);

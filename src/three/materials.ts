@@ -18,6 +18,9 @@ const imgLoadingPromises: Record<string, Promise<THREE.Texture>> = {};
 // Cached roughness/bump map for grout realism
 let groutBumpTex: THREE.DataTexture | null = null;
 
+// Cached simple environment map for tile reflections
+let tileEnvMap: THREE.CubeTexture | null = null;
+
 /**
  * Call this whenever the expo-gl context is recreated (NativeCanvas remount).
  * All GL-context-bound textures must be discarded.
@@ -32,6 +35,7 @@ export function clearTextureCache(): void {
     delete nativeTexCache[k];
   });
   groutBumpTex = null;
+  tileEnvMap = null;
 }
 
 /**
@@ -48,6 +52,52 @@ export function initTextureQuality(renderer: THREE.WebGLRenderer): void {
   maxAniso = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
 }
 
+// ── Procedural environment cubemap for realistic tile reflections ──
+// Creates a soft gradient cubemap simulating a bright room environment.
+// This gives glossy tiles subtle reflections without loading external HDR images.
+function getTileEnvMap(): THREE.CubeTexture {
+  if (tileEnvMap) return tileEnvMap;
+
+  const SIZE = 64;
+  const faces: Uint8Array[] = [];
+
+  for (let face = 0; face < 6; face++) {
+    const buf = new Uint8Array(SIZE * SIZE * 4);
+    for (let py = 0; py < SIZE; py++) {
+      for (let px = 0; px < SIZE; px++) {
+        const i = (py * SIZE + px) * 4;
+        // Gradient from warm white (top) to soft gray (bottom) simulating room light
+        const t = py / SIZE; // 0=top, 1=bottom
+        let r: number, g: number, b: number;
+        if (face === 2) {
+          // +Y (ceiling) — bright warm white
+          r = 255; g = 252; b = 245;
+        } else if (face === 3) {
+          // -Y (floor) — darker warm tone
+          r = 180; g = 170; b = 155;
+        } else {
+          // Walls — gradient from bright top to medium bottom
+          r = Math.round(245 - t * 50);
+          g = Math.round(240 - t * 55);
+          b = Math.round(232 - t * 60);
+        }
+        buf[i] = r; buf[i + 1] = g; buf[i + 2] = b; buf[i + 3] = 255;
+      }
+    }
+    faces.push(buf);
+  }
+
+  const textures = faces.map(data => {
+    const dt = new THREE.DataTexture(data, SIZE, SIZE, THREE.RGBAFormat);
+    dt.needsUpdate = true;
+    return dt;
+  });
+
+  tileEnvMap = new THREE.CubeTexture(textures.map(t => t.image));
+  tileEnvMap.needsUpdate = true;
+  return tileEnvMap;
+}
+
 // ── Grout bump/roughness map for tile realism ────────────────
 // Creates a tileable bump map where the border pixels (grout lines)
 // are raised, giving a subtle 3D depth effect to tile grout.
@@ -55,12 +105,12 @@ function getGroutBumpTex(repX: number, repY: number): THREE.DataTexture {
   if (!groutBumpTex) {
     const S = 128;
     const buf = new Uint8Array(S * S * 4);
-    const GROUT_PX = 2; // grout width in pixels
+    const GROUT_PX = 3; // slightly wider grout for more visible depth
     for (let py = 0; py < S; py++) {
       for (let px = 0; px < S; px++) {
         const i = (py * S + px) * 4;
         const isGrout = px < GROUT_PX || px >= S - GROUT_PX || py < GROUT_PX || py >= S - GROUT_PX;
-        const v = isGrout ? 80 : 180; // darker in grout = recessed
+        const v = isGrout ? 60 : 200; // stronger contrast = deeper grout look
         buf[i] = buf[i + 1] = buf[i + 2] = v;
         buf[i + 3] = 255;
       }
@@ -85,7 +135,7 @@ function buildDataTex(color: string, pattern: string): THREE.DataTexture {
   else if(pattern==='mosaic'){const cs=56;for(let py=0;py<SIZE;py++)for(let px=0;px<SIZE;px++){const cx=Math.floor(px/cs),cy=Math.floor(py/cs),isG=(px%cs<2)||(py%cs<2),sh=((cx*7+cy*13)%40)-20,i=(py*SIZE+px)*4;if(isG){buf[i]=buf[i+1]=buf[i+2]=215;}else{buf[i]=Math.max(0,Math.min(255,r+sh));buf[i+1]=Math.max(0,Math.min(255,g+sh));buf[i+2]=Math.max(0,Math.min(255,b+sh));}}}
   else if(pattern==='stone'){for(let py=0;py<SIZE;py++)for(let px=0;px<SIZE;px++){const cr=(Math.sin(px*0.025)*Math.cos(py*0.025))*20,i=(py*SIZE+px)*4;buf[i]=Math.max(0,Math.min(255,r+cr));buf[i+1]=Math.max(0,Math.min(255,g+cr));buf[i+2]=Math.max(0,Math.min(255,b+cr));}}
   // Grout lines (2px wide for better visibility at 512)
-  const groutR=120,groutG=115,groutB=110;
+  const groutR=110,groutG=105,groutB=100;
   const GROUT = 2;
   for(let j=0;j<SIZE;j++){
     for(let gw=0;gw<GROUT;gw++){
@@ -95,7 +145,9 @@ function buildDataTex(color: string, pattern: string): THREE.DataTexture {
       const rr=(j*SIZE+(SIZE-1-gw))*4; buf[rr]=groutR;buf[rr+1]=groutG;buf[rr+2]=groutB;
     }
   }
-  const tex=new THREE.DataTexture(buf,SIZE,SIZE,THREE.RGBAFormat);tex.needsUpdate=true;return tex;
+  const tex=new THREE.DataTexture(buf,SIZE,SIZE,THREE.RGBAFormat);
+  tex.colorSpace = THREE.SRGBColorSpace; // Proper color rendering
+  tex.needsUpdate=true;return tex;
 }
 
 /** Apply anisotropic filtering if available */
@@ -113,15 +165,18 @@ export function makeProceduralMat(color:string,pattern:string,repX:number,repY:n
     t.magFilter=THREE.LinearFilter;
     applyAniso(t);
   }
+  t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate=true;
-  const roughness = pattern==='marble'?0.18:pattern==='wood'?0.55:0.75;
-  const metalness = pattern==='marble'?0.08:0;
+  // Realistic PBR values for common tile types
+  const roughness = pattern==='marble'?0.12:pattern==='wood'?0.45:pattern==='stone'?0.55:0.25;
+  const metalness = pattern==='marble'?0.05:0;
   const mat = new THREE.MeshStandardMaterial({
     map: t,
     roughness,
     metalness,
     bumpMap: getGroutBumpTex(repX, repY),
-    bumpScale: 0.015,
+    bumpScale: 0.025,
+    envMapIntensity: 0.6, // subtle environment reflections
   });
   return mat;
 }
@@ -146,6 +201,7 @@ function cloneNativeTexture(src: THREE.Texture, repX: number, repY: number): THR
   t.minFilter      = THREE.LinearFilter;
   t.magFilter      = THREE.LinearFilter;
   t.flipY          = true;           // flip Y so image tiles render right-side-up
+  t.colorSpace     = THREE.SRGBColorSpace; // Correct color reproduction
   t.repeat.set(Math.max(0.5, repX), Math.max(0.5, repY));
   t.needsUpdate    = true;
   return t;
@@ -169,6 +225,7 @@ function loadNativeTexture(uri: string): Promise<THREE.Texture> {
             t.minFilter       = THREE.LinearFilter;
             t.magFilter       = THREE.LinearFilter;
             t.flipY           = true;
+            t.colorSpace      = THREE.SRGBColorSpace;
             // Force Three.js to skip texStorage2D → use texImage2D instead
             (t as any).isVideoTexture = true;
             (t as any).update = () => {};
@@ -190,12 +247,13 @@ function loadNativeTexture(uri: string): Promise<THREE.Texture> {
 }
 
 export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,fbPattern:string):THREE.MeshStandardMaterial{
-  // Tile-appropriate PBR: slight roughness variation for realism
+  // Tile-appropriate PBR: glossy ceramic/porcelain look
   const mat=new THREE.MeshStandardMaterial({
-    roughness: 0.45,
-    metalness: 0.02,
+    roughness: 0.18,       // Glossy ceramic tile — low roughness for visible reflections
+    metalness: 0.0,        // Non-metallic
     bumpMap: getGroutBumpTex(repX, repY),
-    bumpScale: 0.012,
+    bumpScale: 0.03,       // More pronounced grout depth
+    envMapIntensity: 0.8,  // Clear environment reflections on glossy tiles
   });
 
   const fallback=()=>{
@@ -226,6 +284,7 @@ export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,f
       c.generateMipmaps=true;
       c.minFilter=THREE.LinearMipmapLinearFilter;
       c.magFilter=THREE.LinearFilter;
+      c.colorSpace=THREE.SRGBColorSpace;
       applyAniso(c);
       c.needsUpdate=true;
       mat.map=c;
@@ -240,6 +299,7 @@ export function makeImageMat(uri:string,repX:number,repY:number,fbColor:string,f
       loader.load(uri,(t)=>{
         t.generateMipmaps=true;
         t.minFilter=THREE.LinearMipmapLinearFilter;
+        t.colorSpace=THREE.SRGBColorSpace;
         applyAniso(t);
         imgTexCache[uri]=t;
         applyTexture(t);
@@ -267,6 +327,26 @@ export function resolveRowMatB(row:any,tile:any,repX:number,repY:number):THREE.M
   const color=row?.tileBColor??effectiveTile?.color??'#c8b89a';
   const pattern=effectiveTile?.pattern??'solid';
   const uri=row?.tileBImageUri??effectiveTile?.imageUri;
+  if(uri)return makeImageMat(uri,repX,repY,color,pattern);
+  return makeProceduralMat(color,pattern,repX,repY);
+}
+
+export function resolveRowMatC(row:any,tile:any,repX:number,repY:number):THREE.MeshStandardMaterial{
+  const hasTileC = row?.tileCId || row?.tileCImageUri;
+  const effectiveTile = hasTileC ? tile : null;
+  const color=row?.tileCColor??effectiveTile?.color??'#c8b89a';
+  const pattern=effectiveTile?.pattern??'solid';
+  const uri=row?.tileCImageUri??effectiveTile?.imageUri;
+  if(uri)return makeImageMat(uri,repX,repY,color,pattern);
+  return makeProceduralMat(color,pattern,repX,repY);
+}
+
+export function resolveRowMatD(row:any,tile:any,repX:number,repY:number):THREE.MeshStandardMaterial{
+  const hasTileD = row?.tileDId || row?.tileDImageUri;
+  const effectiveTile = hasTileD ? tile : null;
+  const color=row?.tileDColor??effectiveTile?.color??'#c8b89a';
+  const pattern=effectiveTile?.pattern??'solid';
+  const uri=row?.tileDImageUri??effectiveTile?.imageUri;
   if(uri)return makeImageMat(uri,repX,repY,color,pattern);
   return makeProceduralMat(color,pattern,repX,repY);
 }

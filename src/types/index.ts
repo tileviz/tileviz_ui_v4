@@ -46,7 +46,7 @@ export interface Tile {
 }
 
 // ── Zone Design ───────────────────────────────────────────────
-export type TilePattern = 'plain' | 'alternate' | 'checker' | 'block' | 'pattern1' | 'pattern2';
+export type TilePattern = 'plain' | 'alternate' | 'checker' | 'block' | 'pattern1' | 'pattern2' | 'circle';
 
 export interface ZoneRow {
   rowIndex:      number;
@@ -64,6 +64,15 @@ export interface ZoneRow {
   tileBName?:         string;
   tileBImageUri?:     string;
   tileBColor?:        string;
+  // ── Circle pattern: 4 quadrant tiles (Q1=top-left, Q2=top-right, Q3=bottom-left, Q4=bottom-right) ──
+  tileCId?:           string;         // third tile (Q3 — bottom-left)
+  tileCName?:         string;
+  tileCImageUri?:     string;
+  tileCColor?:        string;
+  tileDId?:           string;         // fourth tile (Q4 — bottom-right)
+  tileDName?:         string;
+  tileDImageUri?:     string;
+  tileDColor?:        string;
 }
 
 // ── Saved Design ─────────────────────────────────────────────

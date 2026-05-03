@@ -103,8 +103,10 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
       rowIndex, wallKey,
       ...(existing ?? {}),
       patternType,
-      // Clear accent tile when switching to plain
-      ...(patternType === 'plain' ? { tileBId: undefined, tileBName: undefined, tileBImageUri: undefined, tileBColor: undefined } : {}),
+      // Clear accent/circle tile fields when switching to plain
+      ...(patternType === 'plain' ? { tileBId: undefined, tileBName: undefined, tileBImageUri: undefined, tileBColor: undefined, tileCId: undefined, tileCName: undefined, tileCImageUri: undefined, tileCColor: undefined, tileDId: undefined, tileDName: undefined, tileDImageUri: undefined, tileDColor: undefined } : {}),
+      // Clear C/D when switching away from circle to checker
+      ...(patternType === 'checker' ? { tileCId: undefined, tileCName: undefined, tileCImageUri: undefined, tileCColor: undefined, tileDId: undefined, tileDName: undefined, tileDImageUri: undefined, tileDColor: undefined } : {}),
     };
     setZoneRows(
       zoneRows.some(r => r.wallKey === wallKey && r.rowIndex === rowIndex)
@@ -113,15 +115,19 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
     );
   }
 
-  // Focus a specific slot (base or accent) for catalog assignment
-  function focusSlot(wallKey: string, rowIndex: number, slot: 'base' | 'accent') {
-    const k = slot === 'accent' ? `${wallKey}:${rowIndex}:accent` : `${wallKey}:${rowIndex}`;
+  // Focus a specific slot (base, accent, tileC, tileD) for catalog assignment
+  function focusSlot(wallKey: string, rowIndex: number, slot: 'base' | 'accent' | 'tileC' | 'tileD') {
+    const k = slot === 'base' ? `${wallKey}:${rowIndex}` : `${wallKey}:${rowIndex}:${slot}`;
     setAssigningKey(assigningKey === k ? null : k);
     if (isPhone && assigningKey !== k) {
       setSidebarOpen(false);
-      const slotLabel = isParking
-        ? (slot === 'accent' ? 'Dark Tile' : 'Light Tile')
-        : (slot === 'accent' ? 'Accent Tile' : 'Base Tile');
+      const slotLabels: Record<string, string> = {
+        base: isParking ? 'Light Tile' : 'Base Tile',
+        accent: isParking ? 'Dark Tile' : 'Accent Tile',
+        tileC: 'Q3 (Bottom-Left)',
+        tileD: 'Q4 (Bottom-Right)',
+      };
+      const slotLabel = slotLabels[slot] ?? 'Tile';
       const location = isParking ? 'Floor' : `Row ${rowIndex + 1}`;
       showAlert('Select a Tile', `Tap a tile from the catalog to assign as ${slotLabel} for ${location}`);
     }
@@ -312,7 +318,7 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                         const row = getRow(surf.key, r);
                         const k = `${surf.key}:${r}`;
                         const isExpanded = expandedRow === k;
-                        const focused = assigningKey === k || assigningKey === `${k}:accent`;
+                        const focused = assigningKey === k || assigningKey === `${k}:accent` || assigningKey === `${k}:tileC` || assigningKey === `${k}:tileD`;
                         const assigned = !!row?.tileId || !!row?.color;
                         const pt = row?.patternType ?? 'plain';
 
@@ -336,9 +342,19 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                                     ? <Image source={{ uri: row.tileImageUri }} style={st.rowThumbImg} resizeMode="cover" />
                                     : focused && !assigned ? <View style={st.pulseIndicator} /> : null}
                                 </View>
-                                {(pt === 'pattern1' || pt === 'pattern2' || pt === 'checker') && row?.tileBImageUri && (
+                                {(pt === 'pattern1' || pt === 'pattern2' || pt === 'checker' || pt === 'circle') && row?.tileBImageUri && (
                                   <View style={[st.rowThumb, st.rowThumbB]}>
                                     <Image source={{ uri: row.tileBImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                  </View>
+                                )}
+                                {pt === 'circle' && row?.tileCImageUri && (
+                                  <View style={[st.rowThumb, st.rowThumbB]}>
+                                    <Image source={{ uri: row.tileCImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                  </View>
+                                )}
+                                {pt === 'circle' && row?.tileDImageUri && (
+                                  <View style={[st.rowThumb, st.rowThumbB]}>
+                                    <Image source={{ uri: row.tileDImageUri }} style={st.rowThumbImg} resizeMode="cover" />
                                   </View>
                                 )}
                               </View>
@@ -373,6 +389,7 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                                     ? ([
                                         { key: 'plain',   label: 'Plain',       icon: '▦' },
                                         { key: 'checker', label: 'Checker',      icon: '◼◻' },
+                                        { key: 'circle',  label: 'Circle',       icon: '◔◕' },
                                       ] as { key: TilePattern; label: string; icon: string }[])
                                     : ([
                                         { key: 'plain',    label: 'Plain',    icon: '▬' },
@@ -404,7 +421,7 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                                       : <Text style={st.slotPlus}>+</Text>}
                                   </View>
                                   <View style={{ flex: 1 }}>
-                                    <Text style={st.slotLabel}>{isParking && pt === 'checker' ? 'Light Tile' : 'Base Tile'}</Text>
+                                    <Text style={st.slotLabel}>{isParking && pt === 'checker' ? 'Light Tile' : isParking && pt === 'circle' ? 'Q1 (Top-Left)' : 'Base Tile'}</Text>
                                     <Text style={[st.slotTile, !row?.tileName && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
                                       {row?.tileName ?? 'Tap to assign'}
                                     </Text>
@@ -419,8 +436,8 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                                   )}
                                 </TouchableOpacity>
 
-                                {/* Accent tile slot — pattern1/pattern2 (kitchen) or checker (parking) */}
-                                {(pt === 'pattern1' || pt === 'pattern2' || pt === 'checker') && (
+                                {/* Accent tile slot — pattern1/pattern2 (kitchen) or checker/circle (parking) */}
+                                {(pt === 'pattern1' || pt === 'pattern2' || pt === 'checker' || pt === 'circle') && (
                                   <TouchableOpacity
                                     style={[st.slotRow, st.slotRowAccent, assigningKey === `${k}:accent` && st.slotRowActive]}
                                     onPress={() => focusSlot(surf.key, r, 'accent')}
@@ -433,7 +450,9 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                                     </View>
                                     <View style={{ flex: 1 }}>
                                       <Text style={st.slotLabel}>
-                                        {pt === 'checker'
+                                        {pt === 'circle'
+                                          ? 'Q2 (Top-Right)'
+                                          : pt === 'checker'
                                           ? 'Dark Tile'
                                           : <>Accent Tile <Text style={st.slotHint}>({pt === 'pattern1' ? 'every 3rd' : 'every 2nd'})</Text></>}
                                       </Text>
@@ -444,6 +463,62 @@ export function CatalogSidebar({ onGenerate3D }: Props) {
                                     {row?.tileBId && (
                                       <TouchableOpacity onPress={() => {
                                         setZoneRows(zoneRows.map(rr => rr.wallKey === surf.key && rr.rowIndex === r ? { ...rr, tileBId: undefined, tileBName: undefined, tileBImageUri: undefined, tileBColor: undefined } : rr));
+                                      }} hitSlop={8}>
+                                        <Text style={{ fontSize: 10, color: Colors.text3 }}>✕</Text>
+                                      </TouchableOpacity>
+                                    )}
+                                  </TouchableOpacity>
+                                )}
+
+                                {/* Q3 tile slot — circle pattern only (bottom-left) */}
+                                {pt === 'circle' && (
+                                  <TouchableOpacity
+                                    style={[st.slotRow, st.slotRowAccent, assigningKey === `${k}:tileC` && st.slotRowActive]}
+                                    onPress={() => focusSlot(surf.key, r, 'tileC')}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={[st.slotThumb, st.slotThumbAccent, { backgroundColor: row?.tileCColor ?? Colors.surface2 }]}>
+                                      {row?.tileCImageUri
+                                        ? <Image source={{ uri: row.tileCImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                        : <Text style={st.slotPlus}>+</Text>}
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={st.slotLabel}>Q3 (Bottom-Left)</Text>
+                                      <Text style={[st.slotTile, !row?.tileCName && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
+                                        {row?.tileCName ?? 'Tap to assign'}
+                                      </Text>
+                                    </View>
+                                    {row?.tileCId && (
+                                      <TouchableOpacity onPress={() => {
+                                        setZoneRows(zoneRows.map(rr => rr.wallKey === surf.key && rr.rowIndex === r ? { ...rr, tileCId: undefined, tileCName: undefined, tileCImageUri: undefined, tileCColor: undefined } : rr));
+                                      }} hitSlop={8}>
+                                        <Text style={{ fontSize: 10, color: Colors.text3 }}>✕</Text>
+                                      </TouchableOpacity>
+                                    )}
+                                  </TouchableOpacity>
+                                )}
+
+                                {/* Q4 tile slot — circle pattern only (bottom-right) */}
+                                {pt === 'circle' && (
+                                  <TouchableOpacity
+                                    style={[st.slotRow, st.slotRowAccent, assigningKey === `${k}:tileD` && st.slotRowActive]}
+                                    onPress={() => focusSlot(surf.key, r, 'tileD')}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={[st.slotThumb, st.slotThumbAccent, { backgroundColor: row?.tileDColor ?? Colors.surface2 }]}>
+                                      {row?.tileDImageUri
+                                        ? <Image source={{ uri: row.tileDImageUri }} style={st.rowThumbImg} resizeMode="cover" />
+                                        : <Text style={st.slotPlus}>+</Text>}
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={st.slotLabel}>Q4 (Bottom-Right)</Text>
+                                      <Text style={[st.slotTile, !row?.tileDName && { fontStyle: 'italic', color: Colors.text3 }]} numberOfLines={1}>
+                                        {row?.tileDName ?? 'Tap to assign'}
+                                      </Text>
+                                    </View>
+                                    {row?.tileDId && (
+                                      <TouchableOpacity onPress={() => {
+                                        setZoneRows(zoneRows.map(rr => rr.wallKey === surf.key && rr.rowIndex === r ? { ...rr, tileDId: undefined, tileDName: undefined, tileDImageUri: undefined, tileDColor: undefined } : rr));
                                       }} hitSlop={8}>
                                         <Text style={{ fontSize: 10, color: Colors.text3 }}>✕</Text>
                                       </TouchableOpacity>

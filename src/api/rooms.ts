@@ -14,16 +14,17 @@ import { ROOM_EMOJIS } from '../utils/format';
 // into the `pattern` string field (which IS persisted) as JSON
 // and restore them on load.
 //
-// Packed format:  JSON string  { p, pt, bi, bn, bu, bc }
+// Packed format:  JSON string  { p, pt, bi, bn, bu, bc, ci, cn, cu, cc, di, dn, du, dc }
 //   p  = original pattern value (e.g. "solid")
 //   pt = patternType
-//   bi = tileBId
-//   bn = tileBName
-//   bu = tileBImageUri
-//   bc = tileBColor
+//   bi = tileBId,  bn = tileBName,  bu = tileBImageUri,  bc = tileBColor
+//   ci = tileCId,  cn = tileCName,  cu = tileCImageUri,  cc = tileCColor  (circle Q3)
+//   di = tileDId,  dn = tileDName,  du = tileDImageUri,  dc = tileDColor  (circle Q4)
 
 function hasPatternMeta(row: any): boolean {
-  return !!(row.patternType || row.tileBId || row.tileBName || row.tileBImageUri || row.tileBColor);
+  return !!(row.patternType || row.tileBId || row.tileBName || row.tileBImageUri || row.tileBColor
+    || row.tileCId || row.tileCName || row.tileCImageUri || row.tileCColor
+    || row.tileDId || row.tileDName || row.tileDImageUri || row.tileDColor);
 }
 
 /** Pack pattern fields into the `pattern` string for persistence. */
@@ -37,10 +38,21 @@ export function packZoneRows(rows: ZoneRow[]): ZoneRow[] {
       bn: row.tileBName,
       bu: row.tileBImageUri,
       bc: row.tileBColor,
+      // Circle pattern: Q3 (C) and Q4 (D) tiles
+      ci: row.tileCId,
+      cn: row.tileCName,
+      cu: row.tileCImageUri,
+      cc: row.tileCColor,
+      di: row.tileDId,
+      dn: row.tileDName,
+      du: row.tileDImageUri,
+      dc: row.tileDColor,
     });
     // Return a copy with pattern fields removed (backend would strip
     // them anyway) and the packed JSON in `pattern`.
-    const { patternType, tileBId, tileBName, tileBImageUri, tileBColor, ...rest } = row as any;
+    const { patternType, tileBId, tileBName, tileBImageUri, tileBColor,
+            tileCId, tileCName, tileCImageUri, tileCColor,
+            tileDId, tileDName, tileDImageUri, tileDColor, ...rest } = row as any;
     return { ...rest, pattern: packed };
   });
 }
@@ -60,6 +72,15 @@ export function unpackZoneRows(rows: ZoneRow[]): ZoneRow[] {
         tileBName:     meta.bn,
         tileBImageUri: meta.bu,
         tileBColor:    meta.bc,
+        // Circle pattern: Q3 (C) and Q4 (D) tiles
+        tileCId:       meta.ci,
+        tileCName:     meta.cn,
+        tileCImageUri: meta.cu,
+        tileCColor:    meta.cc,
+        tileDId:       meta.di,
+        tileDName:     meta.dn,
+        tileDImageUri: meta.du,
+        tileDColor:    meta.dc,
       };
     } catch {
       return row; // corrupt JSON — leave as-is

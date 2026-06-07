@@ -2,9 +2,9 @@
 //  config/index.ts — App-wide constants. No hardcoding elsewhere.
 // ============================================================
 
-// export const API_BASE_URL = "https://tileviz-server.onrender.com";
+export const API_BASE_URL = "https://tileviz-server.onrender.com";
 // export const API_BASE_URL = 'http://tilevizloadbalancer-2142620472.ap-south-1.elb.amazonaws.com';
-export const API_BASE_URL = "http://localhost:5000";
+// export const API_BASE_URL = "http://localhost:5000";
 
 export const TOKEN_KEYS = {
   access: "tileviz_access_token",

@@ -1,15 +1,16 @@
-// AdminScreen — Shops, Users (#7 - cleaned up)
+// AdminScreen — Shops, Users, Audit Log
 import React,{useEffect,useState,useCallback} from 'react';
-import {View,Text,ScrollView,TouchableOpacity,StyleSheet,Modal,Pressable,ActivityIndicator,RefreshControl,FlatList,useWindowDimensions} from 'react-native';
+import {View,Text,ScrollView,TouchableOpacity,StyleSheet,Modal,Pressable,ActivityIndicator,RefreshControl,FlatList,useWindowDimensions,TextInput,Platform,Linking} from 'react-native';
 import {Colors,Radii,Shadows} from '../config/theme';
 import {Button} from '../components/Button';
 import {FormInput} from '../components/FormInput';
 import {RoleBadge} from '../components/RoleBadge';
 import {getAdminShops,createAdminShop,getAdminUsers,createAdminUser,deactivateUser,deleteUserPermanent} from '../api/admin';
+import {getAuditLogs,getAuditStats,buildAuditExportUrl,AuditLog,AuditFilters} from '../api/audit';
 import {UserRole} from '../types';
 import {showConfirm,showAlert,showError} from '../utils/alert';
 
-type AdminTab='shops'|'users';
+type AdminTab='shops'|'users'|'audit';
 
 export function AdminScreen(){
   const {width} = useWindowDimensions();
@@ -21,6 +22,18 @@ export function AdminScreen(){
   const [shopModal,setShopModal]=useState(false);
   const [userModal,setUserModal]=useState(false);
 
+  // ── Audit state ──────────────────────────────────────────────
+  const [auditLogs,setAuditLogs]=useState<AuditLog[]>([]);
+  const [auditTotal,setAuditTotal]=useState(0);
+  const [auditPage,setAuditPage]=useState(1);
+  const [auditPages,setAuditPages]=useState(1);
+  const [auditLoading,setAuditLoading]=useState(false);
+  const [auditStats,setAuditStats]=useState<any>(null);
+  const [auditSearch,setAuditSearch]=useState('');
+  const [auditCategory,setAuditCategory]=useState('');
+  const [auditFrom,setAuditFrom]=useState('');
+  const [auditTo,setAuditTo]=useState('');
+
   const numCols = width > 1200 ? 4 : width > 800 ? 3 : width > 500 ? 2 : 1;
 
   const load=useCallback(async()=>{
@@ -29,6 +42,31 @@ export function AdminScreen(){
     finally{setLoading(false);setRefreshing(false);}
   },[]);
   useEffect(()=>{load();},[load]);
+
+  // Load audit logs + stats whenever the audit tab is active or filters change
+  const loadAudit = useCallback(async (page=1) => {
+    setAuditLoading(true);
+    try {
+      const filters: AuditFilters = { page, limit: 30 };
+      if (auditSearch)   filters.search   = auditSearch;
+      if (auditCategory) filters.category = auditCategory;
+      if (auditFrom)     filters.from     = new Date(auditFrom).toISOString();
+      if (auditTo)       filters.to       = new Date(auditTo + 'T23:59:59').toISOString();
+      const [res, statsRes] = await Promise.all([
+        getAuditLogs(filters),
+        page === 1 ? getAuditStats() : Promise.resolve(null),
+      ]);
+      if (page === 1) setAuditLogs(res.logs);
+      else setAuditLogs(prev => [...prev, ...res.logs]);
+      setAuditTotal(res.total);
+      setAuditPage(res.page);
+      setAuditPages(res.pages);
+      if (statsRes) setAuditStats(statsRes.stats);
+    } catch(e:any){console.error('audit load:',e?.message);}
+    finally{setAuditLoading(false);}
+  }, [auditSearch, auditCategory, auditFrom, auditTo]);
+
+  useEffect(()=>{ if(tab==='audit') loadAudit(1); },[tab, loadAudit]);
 
   async function handleDeactivate(id:string,name:string){
     showConfirm(
@@ -76,7 +114,7 @@ export function AdminScreen(){
     );
   }
 
-  const TAB_COUNTS:{[k in AdminTab]:number}={shops:shops.length,users:users.length};
+  const TAB_COUNTS:{[k in AdminTab]:number}={shops:shops.length,users:users.length,audit:auditTotal};
 
   if(loading)return(<View style={{flex:1,alignItems:'center',justifyContent:'center',gap:12}}><ActivityIndicator size="large" color={Colors.accent}/><Text style={{fontSize:13,color:Colors.text3}}>Loading admin panel…</Text></View>);
 
@@ -88,9 +126,11 @@ export function AdminScreen(){
       </View>
       {/* Tab bar */}
       <View style={s.tabBar}>
-        {(['shops','users'] as AdminTab[]).map(t=>(
+        {(['shops','users','audit'] as AdminTab[]).map(t=>(
           <TouchableOpacity key={t} onPress={()=>setTab(t)} style={[s.tabBtn,tab===t&&s.tabBtnActive]}>
-            <Text style={[s.tabTxt,tab===t&&{color:Colors.gold}]}>{t.charAt(0).toUpperCase()+t.slice(1)}</Text>
+            <Text style={[s.tabTxt,tab===t&&{color:Colors.gold}]}>
+              {t==='audit' ? '🔍 Audit' : t.charAt(0).toUpperCase()+t.slice(1)}
+            </Text>
             {TAB_COUNTS[t]>0&&<View style={[s.tabBadge,tab===t&&{backgroundColor:'rgba(200,169,110,0.15)'}]}><Text style={[{fontSize:10,fontWeight:'600',color:Colors.text3},tab===t&&{color:Colors.gold}]}>{TAB_COUNTS[t]}</Text></View>}
           </TouchableOpacity>
         ))}
@@ -200,6 +240,128 @@ export function AdminScreen(){
             }
           </>
         )}
+        {/* AUDIT */}
+        {tab==='audit'&&(
+          <View style={{flex:1}}>
+            {/* Stat cards */}
+            {auditStats&&(
+              <View style={{flexDirection:'row',flexWrap:'wrap',gap:10,padding:14,paddingBottom:4}}>
+                {[
+                  {label:'Logins Today',     value:auditStats.loginsToday,       color:'#4caf50'},
+                  {label:'Failed Logins',    value:auditStats.failedLoginsToday,  color:Colors.danger},
+                  {label:'Tile Uploads / 7d',value:auditStats.tileUploadsWeek,   color:Colors.accent},
+                  {label:'Events / 30d',     value:auditStats.totalEventsMonth,  color:Colors.gold},
+                ].map(card=>(
+                  <View key={card.label} style={[s.statCard,{borderLeftColor:card.color}]}>
+                    <Text style={[s.statValue,{color:card.color}]}>{card.value}</Text>
+                    <Text style={s.statLabel}>{card.label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Filters */}
+            <View style={s.filterBar}>
+              <TextInput
+                style={s.searchInput}
+                placeholder="Search user, action, description…"
+                placeholderTextColor={Colors.text3}
+                value={auditSearch}
+                onChangeText={setAuditSearch}
+                onSubmitEditing={()=>loadAudit(1)}
+                returnKeyType="search"
+              />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:8}}>
+                <View style={{flexDirection:'row',gap:6}}>
+                  {['','auth','tile','room','user','shop','inventory','catalog'].map(cat=>(
+                    <TouchableOpacity key={cat||'all'} onPress={()=>{setAuditCategory(cat);}}
+                      style={[s.catChip,auditCategory===cat&&s.catChipActive]}>
+                      <Text style={[s.catChipTxt,auditCategory===cat&&{color:Colors.gold}]}>
+                        {cat===''?'All':cat.charAt(0).toUpperCase()+cat.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+              {/* Date range — web only (native date pickers require expo-datetime-picker) */}
+              {Platform.OS==='web'&&(
+                <View style={{flexDirection:'row',gap:8,marginTop:8}}>
+                  <TextInput style={[s.searchInput,{flex:1}]} placeholder="From (YYYY-MM-DD)" placeholderTextColor={Colors.text3} value={auditFrom} onChangeText={setAuditFrom}/>
+                  <TextInput style={[s.searchInput,{flex:1}]} placeholder="To   (YYYY-MM-DD)" placeholderTextColor={Colors.text3} value={auditTo}   onChangeText={setAuditTo}/>
+                </View>
+              )}
+              <View style={{flexDirection:'row',gap:8,marginTop:8}}>
+                <TouchableOpacity style={[s.filterBtn,{flex:1}]} onPress={()=>loadAudit(1)}>
+                  <Text style={s.filterBtnTxt}>Apply Filters</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.filterBtn,{flex:1,backgroundColor:'transparent',borderColor:Colors.border}]}
+                  onPress={()=>{setAuditSearch('');setAuditCategory('');setAuditFrom('');setAuditTo('');}}>
+                  <Text style={[s.filterBtnTxt,{color:Colors.text2}]}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.filterBtn,{backgroundColor:Colors.primary}]}
+                  onPress={()=>{
+                    const url=buildAuditExportUrl({search:auditSearch||undefined,category:auditCategory||undefined,from:auditFrom?new Date(auditFrom).toISOString():undefined,to:auditTo?new Date(auditTo+'T23:59:59').toISOString():undefined});
+                    Linking.openURL(url);
+                  }}>
+                  <Text style={[s.filterBtnTxt,{color:'#fff'}]}>⬇ CSV</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Log list */}
+            {auditLoading&&auditLogs.length===0?(
+              <View style={{alignItems:'center',padding:40,gap:10}}>
+                <ActivityIndicator size="large" color={Colors.accent}/>
+                <Text style={{fontSize:13,color:Colors.text3}}>Loading audit logs…</Text>
+              </View>
+            ):(
+              <>
+                <Text style={{fontSize:11,color:Colors.text3,paddingHorizontal:14,paddingVertical:6}}>
+                  {auditTotal} event{auditTotal!==1?'s':''} found
+                </Text>
+                {auditLogs.length===0?(
+                  <Text style={s.emptyMsg}>No audit logs match the current filters.</Text>
+                ):(
+                  <>
+                    {auditLogs.map(log=>(
+                      <View key={log._id} style={s.logRow}>
+                        <View style={s.logLeft}>
+                          <View style={[s.logDot,{backgroundColor:categoryColor(log.category)}]}/>
+                        </View>
+                        <View style={{flex:1}}>
+                          <View style={{flexDirection:'row',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                            <Text style={s.logAction}>{log.action}</Text>
+                            <View style={[s.logCatBadge,{backgroundColor:categoryColor(log.category)+'22'}]}>
+                              <Text style={[s.logCatTxt,{color:categoryColor(log.category)}]}>{log.category}</Text>
+                            </View>
+                            <View style={[s.logCatBadge,{backgroundColor:log.platform==='mobile'?'#7c6ff722':'#2196f322'}]}>
+                              <Text style={[s.logCatTxt,{color:log.platform==='mobile'?Colors.accent:'#2196f3'}]}>
+                                {log.platform==='mobile'?'📱 Mobile':'🖥 Web'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={s.logDesc} numberOfLines={2}>{log.description}</Text>
+                          <View style={{flexDirection:'row',gap:10,flexWrap:'wrap',marginTop:3}}>
+                            <Text style={s.logMeta}>👤 {log.userName}{log.userRole?` (${log.userRole})`:''}</Text>
+                            {log.shopName&&<Text style={s.logMeta}>🏪 {log.shopName}</Text>}
+                            <Text style={s.logMeta}>🌐 {log.ipAddress||'—'}</Text>
+                            {log.statusCode&&<Text style={[s.logMeta,{color:log.statusCode>=400?Colors.danger:Colors.success}]}>HTTP {log.statusCode}</Text>}
+                          </View>
+                          <Text style={s.logTime}>{new Date(log.timestamp).toLocaleString()}</Text>
+                        </View>
+                      </View>
+                    ))}
+                    {auditPage<auditPages&&(
+                      <TouchableOpacity style={s.loadMoreBtn} onPress={()=>loadAudit(auditPage+1)} disabled={auditLoading}>
+                        {auditLoading?<ActivityIndicator size="small" color={Colors.accent}/>:<Text style={s.loadMoreTxt}>Load More</Text>}
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Modals */}
@@ -210,6 +372,10 @@ export function AdminScreen(){
 }
 
 // ── Create Shop Modal ────────────────────────────────────────
+function categoryColor(cat:string){
+  const map:Record<string,string>={auth:'#4caf50',tile:'#ff9800',room:'#2196f3',user:'#9c27b0',shop:'#00bcd4',inventory:'#795548',catalog:'#e91e63',system:'#607d8b'};
+  return map[cat]||Colors.text3;
+}
 function CreateShopModal({visible,onClose,onCreated}:{visible:boolean;onClose:()=>void;onCreated:()=>void}){
   const[name,setName]=useState('');
   const[ownerName,setOwnerName]=useState('');
@@ -460,6 +626,87 @@ const s=StyleSheet.create({
     fontWeight:'600',
     color:'#fff',
   },
+
+  // ── Audit styles ────────────────────────────────────────────
+  statCard:{
+    flex:1,
+    minWidth:130,
+    backgroundColor:Colors.white,
+    borderRadius:Radii.md,
+    borderWidth:1,
+    borderColor:Colors.border,
+    borderLeftWidth:4,
+    padding:12,
+    ...Shadows.card,
+  },
+  statValue:{fontSize:24,fontWeight:'700',marginBottom:2},
+  statLabel:{fontSize:11,color:Colors.text3},
+
+  filterBar:{
+    padding:14,
+    paddingTop:10,
+    borderBottomWidth:1,
+    borderBottomColor:Colors.border,
+    backgroundColor:Colors.white,
+    gap:0,
+  },
+  searchInput:{
+    backgroundColor:Colors.surface,
+    borderWidth:1,
+    borderColor:Colors.border,
+    borderRadius:Radii.sm,
+    paddingHorizontal:12,
+    paddingVertical:8,
+    fontSize:13,
+    color:Colors.text1,
+  },
+  catChip:{
+    paddingHorizontal:12,
+    paddingVertical:6,
+    borderRadius:20,
+    borderWidth:1,
+    borderColor:Colors.border,
+    backgroundColor:Colors.surface,
+  },
+  catChipActive:{borderColor:Colors.gold,backgroundColor:'rgba(200,169,110,0.12)'},
+  catChipTxt:{fontSize:11,fontWeight:'500',color:Colors.text2},
+  filterBtn:{
+    paddingVertical:8,
+    paddingHorizontal:14,
+    borderRadius:Radii.sm,
+    borderWidth:1,
+    borderColor:Colors.accent,
+    backgroundColor:Colors.accent+'18',
+    alignItems:'center',
+  },
+  filterBtnTxt:{fontSize:12,fontWeight:'600',color:Colors.accent},
+
+  logRow:{
+    flexDirection:'row',
+    gap:10,
+    paddingHorizontal:14,
+    paddingVertical:10,
+    borderBottomWidth:1,
+    borderBottomColor:Colors.border,
+    backgroundColor:Colors.white,
+  },
+  logLeft:{alignItems:'center',paddingTop:4},
+  logDot:{width:10,height:10,borderRadius:5},
+  logAction:{fontSize:12,fontWeight:'700',color:Colors.text1},
+  logCatBadge:{paddingHorizontal:6,paddingVertical:2,borderRadius:8},
+  logCatTxt:{fontSize:9,fontWeight:'700',textTransform:'uppercase'},
+  logDesc:{fontSize:13,color:Colors.text1,marginTop:3,lineHeight:18},
+  logMeta:{fontSize:11,color:Colors.text3},
+  logTime:{fontSize:10,color:Colors.text3,marginTop:4},
+  loadMoreBtn:{
+    margin:14,
+    paddingVertical:12,
+    borderRadius:Radii.md,
+    borderWidth:1,
+    borderColor:Colors.accent,
+    alignItems:'center',
+  },
+  loadMoreTxt:{fontSize:13,fontWeight:'600',color:Colors.accent},
 });
 const ms=StyleSheet.create({
   overlay:{flex:1,backgroundColor:'rgba(10,10,20,0.55)',alignItems:'center',justifyContent:'center',padding:20},

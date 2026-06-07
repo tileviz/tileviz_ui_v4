@@ -26,6 +26,19 @@ export async function clearTokens() {
 export const getAccessToken  = () => getSafe(TOKEN_KEYS.access);
 export const getRefreshToken = () => getSafe(TOKEN_KEYS.refresh);
 
+/**
+ * Perform a token refresh manually (used by non-axios upload paths).
+ * Returns the new access token on success, or throws on failure.
+ */
+export async function refreshAccessToken(): Promise<string> {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) throw new Error('no_refresh_token');
+  const { data } = await axios.post(`${API_BASE_URL}/api/auth/refresh`, { refreshToken });
+  await storeTokens(data.accessToken, data.refreshToken);
+  client.defaults.headers.common.Authorization = `Bearer ${data.accessToken}`;
+  return data.accessToken;
+}
+
 // ── Request interceptor ──────────────────────────────────────
 client.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {

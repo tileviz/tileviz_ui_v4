@@ -2,7 +2,7 @@
 //  api/tiles.ts — /api/tiles/* endpoints
 // ============================================================
 
-import client, { getAccessToken } from './client';
+import client, { getAccessToken, refreshAccessToken } from './client';
 import { Tile, TileCategory } from '../types';
 import { API_BASE_URL } from '../config';
 
@@ -21,14 +21,16 @@ export interface ApiTile {
 // Build the fully-qualified image URL that both the React Native Image
 // component and Three.js TextureLoader can load.
 // The backend stores either:
-//   - /uploads/tiles/filename.jpg   (disk storage — new uploads)
-//   - http://...                    (legacy absolute URL — ignored gracefully)
+//   - https://f005.backblazeb2.com/file/...  (Backblaze B2 — current architecture)
+//   - /uploads/tiles/filename.jpg            (legacy local disk — pre-cloud migration, now broken)
 function buildImageUri(imageUrl?: string): string | undefined {
   if (!imageUrl) return undefined;
-  // Relative path from disk storage → prepend API base
-  if (imageUrl.startsWith('/')) return `${API_BASE_URL}${imageUrl}`;
-  // Already an absolute URL (legacy or future CDN) → use as-is
+  // Already an absolute URL (B2 CDN or any future CDN) → use as-is
   if (imageUrl.startsWith('http')) return imageUrl;
+  // Legacy relative path from pre-migration disk storage → prepend API base
+  // NOTE: these will 404 since the static file server was removed during migration.
+  if (imageUrl.startsWith('/')) return `${API_BASE_URL}${imageUrl}`;
+  console.warn('[tiles] Unrecognised imageUrl format, cannot build URI:', imageUrl);
   return undefined;
 }
 
@@ -70,18 +72,49 @@ export async function getMyTemporaryTiles(): Promise<Tile[]> {
  *  FormData to be serialised as JSON, which means multer never sees the file.
  *  Native fetch leaves Content-Type unset so the runtime adds the correct
  *  multipart/form-data; boundary=... header automatically.
+ *
+ *  A 30-second AbortController timeout prevents the request hanging indefinitely
+ *  on Render.com cold-start. On a 401 (expired token) the token is refreshed
+ *  once and the upload is retried automatically.
  */
 export async function uploadTile(formData: FormData): Promise<Tile> {
-  const token = await getAccessToken();
-  const headers: HeadersInit = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  // No Content-Type — browser / React Native sets multipart boundary automatically
+  const doUpload = async (token: string | null) => {
+    const headers: HeadersInit = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE_URL}/api/tiles`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tiles`, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err?.name === 'AbortError') {
+        throw new Error('Upload timed out — the server took too long to respond. Please try again.');
+      }
+      throw err;
+    }
+  };
+
+  let token = await getAccessToken();
+  let response = await doUpload(token);
+
+  // If the token expired mid-session, refresh once and retry
+  if (response.status === 401) {
+    try {
+      token = await refreshAccessToken();
+      response = await doUpload(token);
+    } catch (_) {
+      // refresh failed — fall through to the error handler below
+    }
+  }
 
   let body: any;
   try { body = await response.json(); } catch (_) { body = {}; }

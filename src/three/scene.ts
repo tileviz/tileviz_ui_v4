@@ -32,7 +32,7 @@ export function createScene(gl: any, w: number, h: number): SceneBundle {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xe8e2d8);
-  scene.fog = new THREE.FogExp2(0xe8e2d8, 0.005);
+  // Fog removed: tiles use unlit MeshBasicMaterial for catalog-exact color.
 
   const camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 120);
   camera.position.set(6, 5, 8);
@@ -78,7 +78,8 @@ export function createWebScene(canvas: HTMLCanvasElement, w: number, h: number):
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xe8e2d8);
-  scene.fog = new THREE.FogExp2(0xe8e2d8, 0.003); // lighter fog — less washed out
+  // Fog removed: tiles use unlit MeshBasicMaterial for catalog-exact color,
+  // and fog would still tint them toward the beige background.
 
   const camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 120);
   camera.position.set(6, 5, 8);

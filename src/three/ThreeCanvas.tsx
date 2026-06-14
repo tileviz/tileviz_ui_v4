@@ -17,6 +17,10 @@ import { frameCameraToRoom, setLighting, SceneBundle, createScene, createWebScen
 import { buildRoom, toggleWindows } from './room-builder';
 import { clearTextureCache } from './materials';
 import { RoomType, Tile, ZoneRow } from '../types';
+import { useThreeScene } from './hooks/useThreeScene';
+import { useSceneInput } from './hooks/useSceneInput';
+import { useScreenshotCapture } from './hooks/useScreenshotCapture';
+import { WebSceneState } from './hooks/sceneState';
 
 const styles = StyleSheet.create({
   wrap:       { flex: 1 },
@@ -157,21 +161,7 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
   const nativeTop = controlsTopOffset ?? 52;
   const containerRef = useRef<any>(null);
   const configRef = useRef(config);
-  const stateRef = useRef<{
-    bundle: SceneBundle;
-    roomGroup: THREE.Group | null;
-    fixturesGroup: THREE.Group | null;
-    autoRotate: boolean;
-    lightOn: boolean;
-    objectsOn: boolean;
-    animId: number;
-    interiorMode: boolean;
-    yaw: number;
-    pitch: number;
-    isDragging: boolean;
-    lastMouseX: number;
-    lastMouseY: number;
-  } | null>(null);
+  const stateRef = useRef<WebSceneState | null>(null);
   const [ready,      setReady]      = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
   const [lightOn,    setLightOnUI]  = useState(true);
@@ -183,286 +173,29 @@ function WebCanvas({ config, onResetDesign, onCaptureReady, controlsTopOffset }:
   // Keep config ref current
   useEffect(() => { configRef.current = config; }, [config]);
 
-  // ── Mount once — create renderer, canvas, animation loop ──
-  useEffect(() => {
-    const container = containerRef.current as HTMLDivElement | null;
-    if (!container) return;
-    let cancelled = false;
-    let localBundle: SceneBundle | null = null;
-    let localRo: ResizeObserver | null = null;
+  // ── Scene lifecycle: canvas, renderer, room build, render loop, resize ──
+  const canvasRef = useThreeScene({
+    containerRef,
+    configRef,
+    stateRef,
+    onReady:   () => setReady(true),
+    onUnready: () => setReady(false),
+  });
 
-    const canvas = document.createElement('canvas');
-    canvas.style.display = 'block';
-    canvas.style.width   = '100%';
-    canvas.style.height  = '100%';
-    canvas.style.touchAction = 'none'; // Prevent browser scroll on mobile web
-    container.appendChild(canvas);
+  // ── Mouse + touch + wheel input ───────────────────────────────
+  useSceneInput({
+    canvasRef,
+    stateRef,
+    onAutoRotateChange: setAutoRotate,
+  });
 
-    // Use rAF to ensure container layout is complete before reading dimensions.
-    // This fixes the "stuck in corner" bug on high-DPI mobile phones where
-    // clientWidth/clientHeight return 0 before layout finishes.
-    const initFrame = requestAnimationFrame(() => {
-      if (cancelled) return;
-      const w = container.clientWidth  || 800;
-      const h = container.clientHeight || 600;
-
-      const bundle = createWebScene(canvas, w, h);
-      localBundle = bundle;
-      const cfg = configRef.current ?? {
-        roomType: 'bathroom' as RoomType, widthFt: 5, lengthFt: 6, heightFt: 8,
-        tileWidthIn: 12, tileHeightIn: 12, selectedTile: null, zoneRows: [],
-      };
-      const { roomGroup, fixturesGroup } = buildRoom(bundle.scene, cfg, bundle.pointLight);
-      frameCameraToRoom(bundle.camera, cfg.widthFt, cfg.lengthFt, cfg.heightFt);
-
-      const state = {
-        bundle, roomGroup, fixturesGroup,
-        autoRotate: true, lightOn: true, objectsOn: true, animId: 0,
-        interiorMode: false, yaw: 0, pitch: 0,
-        isDragging: false, lastMouseX: 0, lastMouseY: 0
-      };
-      stateRef.current = state;
-      setReady(true);
-
-      // Register screenshot capture function
-      if (onCaptureReady) {
-        onCaptureReady(async () => {
-          // Render one clean frame
-          bundle.renderer.render(bundle.scene, bundle.camera);
-
-          // Attempt 1: direct toDataURL (works if canvas isn't CORS-tainted)
-          try {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            if (dataUrl && dataUrl.length > 100) {
-              console.log('[TileViz] Screenshot via toDataURL:', dataUrl.length, 'chars');
-              return dataUrl;
-            }
-          } catch (e) {
-            console.warn('[TileViz] toDataURL failed (CORS tainted?):', e);
-          }
-
-          // Attempt 2: render target + readPixels (bypasses CORS)
-          try {
-            const w = canvas.width;
-            const h = canvas.height;
-            const rt = new THREE.WebGLRenderTarget(w, h, {
-              format: THREE.RGBAFormat,
-              type: THREE.UnsignedByteType,
-            });
-            bundle.renderer.setRenderTarget(rt);
-            bundle.renderer.render(bundle.scene, bundle.camera);
-            const pixels = new Uint8Array(w * h * 4);
-            bundle.renderer.readRenderTargetPixels(rt, 0, 0, w, h, pixels);
-            bundle.renderer.setRenderTarget(null);
-            rt.dispose();
-
-            // Check if we got actual pixel data
-            let hasData = false;
-            for (let i = 0; i < Math.min(pixels.length, 1000); i += 4) {
-              if (pixels[i] !== 0 || pixels[i+1] !== 0 || pixels[i+2] !== 0) {
-                hasData = true; break;
-              }
-            }
-            console.log('[TileViz] readRenderTargetPixels hasData:', hasData, 'size:', w, 'x', h);
-
-            if (hasData) {
-              const offscreen = document.createElement('canvas');
-              offscreen.width = w;
-              offscreen.height = h;
-              const ctx = offscreen.getContext('2d');
-              if (!ctx) return null;
-              const imgData = ctx.createImageData(w, h);
-              for (let row = 0; row < h; row++) {
-                const srcOff = (h - row - 1) * w * 4;
-                const dstOff = row * w * 4;
-                imgData.data.set(pixels.subarray(srcOff, srcOff + w * 4), dstOff);
-              }
-              ctx.putImageData(imgData, 0, 0);
-              return offscreen.toDataURL('image/jpeg', 0.85);
-            }
-          } catch (e) {
-            console.warn('[TileViz] readRenderTargetPixels failed:', e);
-          }
-
-          return null;
-        });
-      }
-
-      const loop = () => {
-        state.animId = requestAnimationFrame(loop);
-        if (state.roomGroup && state.autoRotate) state.roomGroup.rotation.y += 0.003;
-        bundle.renderer.render(bundle.scene, bundle.camera);
-      };
-      loop();
-
-      const ro = new ResizeObserver((entries) => {
-        const e = entries[0]; if (!e) return;
-        const nw = e.contentRect.width, nh = e.contentRect.height;
-        if (nw > 0 && nh > 0) {
-          bundle.renderer.setSize(nw, nh, false); // false = preserve canvas CSS (100%)
-          bundle.camera.aspect = nw / nh;
-          bundle.camera.updateProjectionMatrix();
-        }
-      });
-      localRo = ro;
-      ro.observe(container);
-    });
-
-    // ── Mouse event listeners ────────────────────────────────
-    const handleMouseDown = (e: MouseEvent) => {
-      const s = stateRef.current;
-      if (!s) return;
-      s.isDragging = true;
-      s.lastMouseX = e.clientX;
-      s.lastMouseY = e.clientY;
-      canvas.style.cursor = 'grabbing';
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const s = stateRef.current;
-      if (!s || !s.isDragging) return;
-      const deltaX = e.clientX - s.lastMouseX;
-      const deltaY = e.clientY - s.lastMouseY;
-
-      if (s.interiorMode) {
-        if (!s.autoRotate) { s.lastMouseX = e.clientX; s.lastMouseY = e.clientY; return; }
-        s.yaw -= deltaX * 0.003;
-        s.pitch -= deltaY * 0.003;
-        const maxPitch = (72 * Math.PI) / 180;
-        s.pitch = Math.max(-maxPitch, Math.min(maxPitch, s.pitch));
-        updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch);
-      } else if (s.roomGroup) {
-        s.autoRotate = false;
-        setAutoRotate(false);
-        s.roomGroup.rotation.y += deltaX * 0.005;
-      }
-
-      s.lastMouseX = e.clientX;
-      s.lastMouseY = e.clientY;
-    };
-
-    const handleMouseUp = () => {
-      const s = stateRef.current;
-      if (!s) return;
-      s.isDragging = false;
-      canvas.style.cursor = s.interiorMode ? 'grab' : 'default';
-    };
-
-    const handleWheel = (e: WheelEvent) => {
-      const s = stateRef.current;
-      if (!s) return;
-      e.preventDefault();
-      if (s.interiorMode) {
-        const delta = e.deltaY > 0 ? 5 : -5;
-        s.bundle.camera.fov = Math.max(35, Math.min(100, s.bundle.camera.fov + delta));
-        s.bundle.camera.updateProjectionMatrix();
-      } else {
-        const factor = e.deltaY > 0 ? 1.05 : 0.95;
-        s.bundle.camera.position.multiplyScalar(factor);
-        s.bundle.camera.position.clampLength(1.5, 30);
-      }
-    };
-
-    // ── Touch event listeners (mobile web) ───────────────────
-    let lastPinchDist = 0;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      const s = stateRef.current;
-      if (!s) return;
-      if (e.touches.length === 2) {
-        const dx = e.touches[1].clientX - e.touches[0].clientX;
-        const dy = e.touches[1].clientY - e.touches[0].clientY;
-        lastPinchDist = Math.sqrt(dx * dx + dy * dy);
-        s.isDragging = false;
-      } else if (e.touches.length === 1) {
-        s.isDragging = true;
-        s.lastMouseX = e.touches[0].clientX;
-        s.lastMouseY = e.touches[0].clientY;
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault();
-      const s = stateRef.current;
-      if (!s) return;
-
-      if (e.touches.length === 2 && lastPinchDist > 0) {
-        // Pinch to zoom
-        const dx = e.touches[1].clientX - e.touches[0].clientX;
-        const dy = e.touches[1].clientY - e.touches[0].clientY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const scale = dist / lastPinchDist;
-
-        if (s.interiorMode) {
-          s.bundle.camera.fov = Math.max(35, Math.min(100, s.bundle.camera.fov / scale));
-          s.bundle.camera.updateProjectionMatrix();
-        } else {
-          s.bundle.camera.position.multiplyScalar(scale > 1 ? 0.97 : 1.03);
-          s.bundle.camera.position.clampLength(1.5, 30);
-        }
-        lastPinchDist = dist;
-      } else if (e.touches.length === 1 && s.isDragging) {
-        // Single finger drag
-        const clientX = e.touches[0].clientX;
-        const clientY = e.touches[0].clientY;
-        const deltaX = clientX - s.lastMouseX;
-        const deltaY = clientY - s.lastMouseY;
-
-        if (s.interiorMode) {
-          s.yaw -= deltaX * 0.003;
-          s.pitch -= deltaY * 0.003;
-          const maxPitch = (72 * Math.PI) / 180;
-          s.pitch = Math.max(-maxPitch, Math.min(maxPitch, s.pitch));
-          updateCameraFromYawPitch(s.bundle.camera, s.yaw, s.pitch);
-        } else if (s.roomGroup) {
-          s.autoRotate = false;
-          setAutoRotate(false);
-          s.roomGroup.rotation.y += deltaX * 0.005;
-        }
-
-        s.lastMouseX = clientX;
-        s.lastMouseY = clientY;
-      }
-    };
-
-    const handleTouchEnd = () => {
-      const s = stateRef.current;
-      if (s) s.isDragging = false;
-      lastPinchDist = 0;
-    };
-
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mouseleave', handleMouseUp);
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-    canvas.addEventListener('touchend', handleTouchEnd);
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(initFrame);
-      if (localBundle) localBundle.renderer.dispose();
-      if (localRo) localRo.disconnect();
-      const s = stateRef.current;
-      if (s) {
-        cancelAnimationFrame(s.animId);
-      }
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mouseleave', handleMouseUp);
-      canvas.removeEventListener('touchstart', handleTouchStart);
-      canvas.removeEventListener('touchmove', handleTouchMove);
-      canvas.removeEventListener('touchend', handleTouchEnd);
-      canvas.removeEventListener('wheel', handleWheel);
-      if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-      stateRef.current = null;
-      setReady(false);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Mount only once — config changes handled separately
+  // ── Screenshot capture registration ───────────────────────────
+  useScreenshotCapture({
+    canvasRef,
+    stateRef,
+    ready,
+    onCaptureReady,
+  });
 
   // ── Rebuild room when config changes ────────────────────────
   useEffect(() => {
